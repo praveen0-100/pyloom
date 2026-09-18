@@ -1,0 +1,278 @@
+/* Canvas — React Flow node / edge / background styling */
+
+.canvas-wrapper {
+  flex: 1;
+  position: relative;
+  background-color: var(--canvas-bg);
+  background-image: var(--canvas-glow),
+    radial-gradient(circle, var(--canvas-dot) 1px, transparent 1px);
+  background-size: 100% 100%, 20px 20px;
+  background-position: center, 0 0;
+  overflow: hidden;
+  cursor: grab;
+  transition: background-color 0.25s ease;
+}
+
+.canvas-wrapper.is-panning {
+  cursor: grabbing;
+}
+
+.canvas-viewport {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+#connections-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5000px;
+  height: 5000px;
+  pointer-events: none;
+  z-index: 5;
+  overflow: visible;
+}
+
+.connection-track {
+  stroke: var(--rf-edge);
+  stroke-width: 3px;
+  fill: none;
+  stroke-linecap: round;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.connection-path {
+  stroke: #d9d9e2;
+  stroke-width: 1.6px;
+  fill: none;
+  stroke-linecap: round;
+  cursor: pointer;
+  pointer-events: stroke;
+  stroke-dasharray: 1.25 7.5;
+  animation: rf-flow 1.35s linear infinite;
+  transition: stroke 0.15s, stroke-width 0.15s, opacity 0.15s;
+}
+
+.connection-path:hover {
+  stroke: var(--rf-accent);
+  stroke-width: 2px;
+  stroke-dasharray: 1.5 6.5;
+}
+
+.connection-path.drawing {
+  stroke: var(--rf-brand);
+  stroke-width: 2px;
+  stroke-dasharray: 5 5;
+  animation: rf-dash 0.6s linear infinite;
+}
+
+@keyframes rf-dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+@keyframes rf-flow {
+  to {
+    stroke-dashoffset: -11;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-path,
+  .connection-path.drawing {
+    animation: none;
+  }
+}
+
+.canvas-node {
+  position: absolute;
+  width: 180px;
+  user-select: none;
+  background: var(--node-bg);
+  border: 1px solid var(--node-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--node-shadow);
+  z-index: 10;
+  transition: box-shadow 0.15s, border-color 0.15s, background 0.2s;
+  font-size: 12px;
+}
+
+.canvas-node.selected {
+  border-color: var(--rf-brand);
+  box-shadow: 0 0 0 2px var(--node-selected-ring), var(--node-shadow);
+}
+
+.canvas-node.status-success {
+  border-color: var(--accent-emerald);
+}
+
+.canvas-node.status-error {
+  border-color: var(--accent-rose);
+}
+
+.node-header {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px) 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: move;
+  background: var(--bg-subtle);
+}
+
+.node-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.node-type-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.node-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-main);
+  letter-spacing: -0.01em;
+}
+
+.node-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.node-body {
+  padding: 10px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.node-config-summary {
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  background: var(--bg-code);
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--rf-brand);
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--border-color);
+}
+
+.node-ports {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.port {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--rf-handle);
+  border: 2px solid var(--handle-ring);
+  position: absolute;
+  cursor: crosshair;
+  transition: transform 0.12s, background-color 0.12s, box-shadow 0.12s;
+  z-index: 15;
+  pointer-events: auto;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.port:hover {
+  transform: scale(1.25);
+  background: var(--rf-accent);
+}
+
+.port-input {
+  left: 50%;
+  transform: translateX(-50%);
+  top: -5px;
+}
+
+.port-input:hover {
+  transform: translateX(-50%) scale(1.25);
+}
+
+.port-output {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -5px;
+  top: auto;
+}
+
+.port-output:hover {
+  transform: translateX(-50%) scale(1.25);
+}
+
+.port.is-connecting {
+  background: var(--rf-brand);
+  box-shadow: 0 0 0 4px var(--port-connect-ring);
+}
+
+.canvas-toolbar {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 4px;
+  z-index: 30;
+  box-shadow: var(--shadow-panel);
+}
+
+.tool-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+
+.tool-btn:hover {
+  background: var(--bg-muted);
+  color: var(--rf-brand);
+}
+
+.tool-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tool-btn-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 2px 4px;
+}

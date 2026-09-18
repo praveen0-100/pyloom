@@ -1,0 +1,12 @@
+{
+  "mission_01":[{"test_id":"T01","name":"Marks difference","input":{"student_a":85,"student_b":72},"expected":13,"hidden":false}],
+  "mission_02":[{"test_id":"T01","name":"Stationery total","input":{"notebook":40,"pen":15,"pencil":10},"expected":65,"hidden":false}],
+  "mission_06":[{"test_id":"T01","name":"Three-test average","input":[80,90,70],"expected":80.0,"hidden":false}],
+  "mission_07":[{"test_id":"T01","name":"School bag discount","input":{"original_price":500,"discount_percent":10},"expected":"Discount: 50; Final price: 450","hidden":false}],
+  "mission_08":[{"test_id":"T01","name":"Temperature conversion","input":{"celsius":25},"expected":77,"hidden":false}],
+  "mission_03":[{"test_id":"T01","name":"Locker swap","input":{"student_a_locker":12,"student_b_locker":25},"expected":"Student A locker = 25\nStudent B locker = 12","hidden":false}],
+  "mission_04":[{"test_id":"T01","name":"Leap year 2028","input":2028,"expected":"2028 is a leap year","hidden":false}],
+  "mission_09":[{"test_id":"T01","name":"Budget check","input":{"budget":200,"notebook":80,"pen":30,"pencil_box":100},"expected":"Budget exceeded by 10","hidden":false}],
+  "mission_05":[{"test_id":"T01","name":"Asia position","input":"Asia","expected":"Continent: Asia\nHemisphere: Northern and Eastern\nPosition: Upper-right region of the simplified globe","hidden":false}],
+  "mission_10":[{"test_id":"T01","name":"Green traffic light","input":"Green","expected":"Traffic Light: Green\nInstruction: Go","hidden":false}]
+}

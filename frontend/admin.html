@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#7700ff">
+  <title>PYLOOM Admin</title>
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="admin-page">
+
+  <section class="admin-login" id="admin-login" aria-labelledby="admin-login-title">
+    <div class="admin-login-card">
+      <div class="brand-name">PYLOOM</div>
+      <h1 id="admin-login-title">Admin sign in</h1>
+      <p>Sign in to read submissions and manage participant access.</p>
+      <form id="admin-login-form">
+        <label for="admin-username">Username</label>
+        <input id="admin-username" type="text" autocomplete="username" required>
+        <label for="admin-password">Password</label>
+        <input id="admin-password" type="password" autocomplete="current-password" required>
+        <button type="submit" class="btn btn-primary">Open admin panel</button>
+        <div id="admin-login-error" class="admin-login-error" role="alert"></div>
+      </form>
+    </div>
+  </section>
+
+  <div class="admin-container" id="admin-dashboard" hidden>
+    <div class="admin-header">
+      <div>
+        <h1>Competition monitor</h1>
+        <p>Live team submissions and credit audit for PYLOOM missions.</p>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button type="button" class="btn btn-secondary" id="admin-logout-btn">Log out</button>
+        <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode" title="Toggle theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <path d="M12 3a7 7 0 1 0 7 7 5 5 0 0 1-7-7z"/>
+          </svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+          </svg>
+        </button>
+        <a href="/" class="btn btn-secondary">← Back to editor</a>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-val" id="stat-online">18</div>
+        <div class="stat-lbl">Active competition teams</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-submitted">0</div>
+        <div class="stat-lbl">Total submissions received</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-avg-score">0.0</div>
+        <div class="stat-lbl">Average team credits</div>
+      </div>
+    </div>
+
+    <div class="admin-section-grid">
+      <div class="table-card">
+        <h3>Participant access</h3>
+        <div class="metric-list">
+          <div><span>Participants in canvas</span><strong id="stat-canvas">0</strong></div>
+          <div><span>Active participants</span><strong id="stat-active">0</strong></div>
+          <div><span>Pending participants</span><strong id="stat-pending">0</strong></div>
+        </div>
+        <div class="participant-add">
+          <input id="participant-team-id" class="search-input" placeholder="Team ID" autocomplete="off">
+          <button type="button" class="btn btn-primary" id="add-participant-btn">Add pending</button>
+        </div>
+        <div id="participant-list" class="participant-list"></div>
+      </div>
+
+      <div class="table-card">
+        <h3>Levels</h3>
+        <div class="level-grid">
+          <div class="level-card"><strong>Easy</strong><span id="level-easy">0 / 0 completed</span></div>
+          <div class="level-card"><strong>Medium</strong><span id="level-medium">0 / 0 completed</span></div>
+          <div class="level-card"><strong>Hard</strong><span id="level-hard">0 / 0 completed</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-card question-summary-card">
+      <h3>Question progress</h3>
+      <div class="question-grid">
+        <div><strong id="questions-completed">0</strong><span>Successfully completed</span></div>
+        <div><strong id="questions-tried">0</strong><span>Tried</span></div>
+        <div><strong id="questions-wrong">0</strong><span>Wrong</span></div>
+        <div><strong id="questions-incomplete">0</strong><span>Incomplete</span></div>
+      </div>
+    </div>
+
+    <div class="table-card question-summary-card">
+      <h3>Saved participant mappings</h3>
+      <table class="admin-table">
+        <thead><tr><th>Participant</th><th>Question</th><th>Status</th><th>Attempts</th><th>Saved mapping</th></tr></thead>
+        <tbody id="progress-mappings-tbody"><tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No saved mappings yet.</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="table-card">
+      <h3>Live submissions log</h3>
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Team ID</th>
+            <th>Mission</th>
+            <th>Round</th>
+            <th>Credits</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="submissions-tbody">
+          <tr>
+            <td colspan="5" style="color:var(--text-dim); text-align:center;">Loading submissions…</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    async function loadAdminSummary() {
+      try {
+        const res = await fetch("/api/admin/summary");
+        const data = await res.json();
+        if (!data.success) return;
+
+        document.getElementById("stat-canvas").textContent = data.participants.canvas;
+        document.getElementById("stat-active").textContent = data.participants.active;
+        document.getElementById("stat-pending").textContent = data.participants.pending;
+        ["easy", "medium", "hard"].forEach(level => {
+          const info = data.levels[level];
+          document.getElementById(`level-${level}`).textContent = `${info.completed} completed / ${info.total} questions`;
+        });
+        ["completed", "tried", "wrong", "incomplete"].forEach(key => {
+          document.getElementById(`questions-${key}`).textContent = data.questions[key];
+        });
+
+        const list = document.getElementById("participant-list");
+        list.innerHTML = data.participant_records.map(p => `
+          <div class="participant-row"><span>${p.team_id}</span>
+            ${p.status === "pending" ? `<button type="button" class="btn btn-secondary allow-participant" data-team-id="${p.team_id}">Allow</button>` : `<span class="status-badge status-accepted">ACTIVE</span>`}
+          </div>`).join("");
+        list.querySelectorAll(".allow-participant").forEach(button => {
+          button.onclick = async () => {
+            await fetch(`/api/admin/participants/${encodeURIComponent(button.dataset.teamId)}/allow`, { method: "POST" });
+            loadAdminSummary();
+          };
+        });
+
+        const mappingsBody = document.getElementById("progress-mappings-tbody");
+        const missions = await (await fetch("/api/missions")).json();
+        const missionNames = Object.fromEntries((missions.missions || []).map(m => [m.id, m.title]));
+        const rows = [];
+        Object.entries(data.progress_records || {}).forEach(([teamId, records]) => {
+          Object.entries(records).forEach(([missionId, record]) => {
+            const mapping = JSON.stringify(record.flow || {}, null, 2)
+              .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            rows.push(`<tr><td class="cell-team">${teamId}</td><td>${missionNames[missionId] || missionId}</td><td><span class="status-badge status-${record.status === "completed" ? "accepted" : "rejected"}">${record.status.toUpperCase()}</span></td><td>${record.attempts || 0}</td><td><details><summary>View / edit flow</summary><textarea class="mapping-editor" data-team-id="${teamId}" data-mission-id="${missionId}">${mapping}</textarea><button type="button" class="btn btn-secondary save-mapping-btn">Save mapping</button></details></td></tr>`);
+          });
+        });
+        mappingsBody.innerHTML = rows.length ? rows.join("") : '<tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No saved mappings yet.</td></tr>';
+        mappingsBody.querySelectorAll(".save-mapping-btn").forEach(button => {
+          button.onclick = async () => {
+            const editor = button.parentElement.querySelector(".mapping-editor");
+            try {
+              const flow = JSON.parse(editor.value);
+              const response = await fetch(`/api/admin/progress/${encodeURIComponent(editor.dataset.teamId)}/${encodeURIComponent(editor.dataset.missionId)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ flow })
+              });
+              const result = await response.json();
+              button.textContent = result.success ? "Saved" : "Save failed";
+              if (result.success) setTimeout(() => { button.textContent = "Save mapping"; }, 1600);
+            } catch (err) {
+              button.textContent = "Invalid JSON";
+            }
+          };
+        });
+      } catch (err) {
+        console.error("Admin summary load error:", err);
+      }
+    }
+
+    async function loadAdminData() {
+      try {
+        const res = await API.getAdminSubmissions();
+        if (!res.success) return;
+
+        document.getElementById("stat-online").textContent = res.teams_online;
+        document.getElementById("stat-submitted").textContent = res.submissions.length;
+
+        const totalCredits = res.submissions.reduce((acc, s) => acc + s.credits, 0);
+        const avg = res.submissions.length ? (totalCredits / res.submissions.length).toFixed(1) : "0.0";
+        document.getElementById("stat-avg-score").textContent = avg;
+
+        const tbody = document.getElementById("submissions-tbody");
+        if (!res.submissions.length) {
+          tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No submissions recorded yet.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = "";
+        res.submissions.forEach(s => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td class="cell-team">${s.team_id}</td>
+            <td>${s.mission_title}</td>
+            <td>Round ${s.round}</td>
+            <td class="cell-credits">${s.credits} / 40</td>
+            <td><span class="status-badge status-${s.status}">${s.status.toUpperCase()}</span></td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+      } catch (err) {
+        console.error("Admin load error:", err);
+      }
+    }
+
+    document.getElementById("add-participant-btn").onclick = async () => {
+      const input = document.getElementById("participant-team-id");
+      if (!input.value.trim()) return;
+      await fetch("/api/admin/participants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_id: input.value.trim() })
+      });
+      input.value = "";
+      loadAdminSummary();
+    };
+
+    const loginView = document.getElementById("admin-login");
+    const dashboard = document.getElementById("admin-dashboard");
+    const loginError = document.getElementById("admin-login-error");
+
+    function showDashboard() {
+      loginView.hidden = true;
+      dashboard.hidden = false;
+      loadAdminData();
+      loadAdminSummary();
+    }
+
+    document.getElementById("admin-login-form").onsubmit = async (event) => {
+      event.preventDefault();
+      loginError.textContent = "";
+      const response = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: document.getElementById("admin-username").value,
+          password: document.getElementById("admin-password").value
+        })
+      });
+      const result = await response.json();
+      if (!result.success) {
+        loginError.textContent = result.error || "Unable to sign in.";
+        return;
+      }
+      showDashboard();
+    };
+
+    document.getElementById("admin-logout-btn").onclick = async () => {
+      await fetch("/api/admin/logout", { method: "POST" });
+      dashboard.hidden = true;
+      loginView.hidden = false;
+      document.getElementById("admin-password").value = "";
+    };
+
+    fetch("/api/admin/session").then(response => response.json()).then(result => {
+      if (result.authenticated) showDashboard();
+    });
+    setInterval(() => {
+      if (!dashboard.hidden) { loadAdminData(); loadAdminSummary(); }
+    }, 5000);
+  </script>
+</body>
+</html>
