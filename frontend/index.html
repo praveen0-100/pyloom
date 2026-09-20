@@ -11,6 +11,15 @@
 </head>
 <body>
 
+  <div id="participant-lock-overlay" class="participant-lock-overlay" hidden>
+    <div class="participant-lock-card">
+      <div class="participant-lock-icon">⛶</div>
+      <h2 id="participant-lock-title">Participant mode is active</h2>
+      <p id="participant-lock-message">Stay in this participant console. Full screen is required while the competition is locked.</p>
+      <button type="button" class="btn btn-primary" id="enter-participant-fullscreen-btn">Enter full screen</button>
+    </div>
+  </div>
+
   <header class="app-header">
     <div style="display:flex; align-items:center;">
       <a href="/" class="brand">
@@ -46,7 +55,13 @@
       </button>
       <div class="stat-pill timer-box">
         <svg class="stat-pill-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 2.5"/></svg>
+        <span class="timer-label">Level</span>
         <span id="timer-display">20:00</span>
+      </div>
+      <div class="stat-pill main-timer-box">
+        <svg class="stat-pill-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 2.5"/></svg>
+        <span class="timer-label">Main</span>
+        <span id="main-timer-display">40:00</span>
       </div>
       <div class="stat-pill credits-counter">
         <svg class="stat-pill-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l1.5 4.5L14 8l-4.5 1.5L8 14l-1.5-4.5L2 8l4.5-1.5L8 2z"/></svg>

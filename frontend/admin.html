@@ -61,6 +61,45 @@
       </div>
     </div>
 
+    <div class="table-card admin-timer-card">
+      <div class="admin-timer-heading">
+        <div>
+          <h3>Timer control</h3>
+          <p>Changes are synchronized with the participant console in real time.</p>
+        </div>
+        <span id="timer-status" class="status-badge status-accepted">Running</span>
+      </div>
+      <div class="admin-timer-readouts">
+        <div><span>Main timer</span><strong id="admin-main-timer">40:00</strong><small id="admin-main-status">Running</small></div>
+        <div><span>Level timer</span><strong id="admin-level-timer">20:00</strong><small id="admin-level-status">Running</small></div>
+        <div><span>Current level</span><strong id="admin-timer-level">Easy</strong></div>
+      </div>
+      <div class="admin-timer-actions">
+        <button type="button" class="btn btn-secondary" id="pause-main-timer-btn">Pause main timer</button>
+        <button type="button" class="btn btn-primary" id="resume-main-timer-btn">Resume main timer</button>
+        <button type="button" class="btn btn-secondary" id="restart-main-timer-btn">Restart main timer</button>
+        <button type="button" class="btn btn-secondary" id="pause-level-timer-btn">Pause level timer</button>
+        <button type="button" class="btn btn-primary" id="resume-level-timer-btn">Resume level timer</button>
+        <button type="button" class="btn btn-secondary" id="restart-level-timer-btn">Restart level timer</button>
+      </div>
+      <div id="timer-control-message" class="admin-login-error" role="status"></div>
+    </div>
+
+    <div class="table-card admin-timer-card">
+      <div class="admin-timer-heading">
+        <div>
+          <h3>Participant full screen</h3>
+          <p>Require the participant console to remain in browser full screen. Shortcuts: Ctrl+D enable, Ctrl+R release.</p>
+        </div>
+        <span id="participant-lock-status" class="status-badge status-rejected">Released</span>
+      </div>
+      <div class="admin-timer-actions">
+        <button type="button" class="btn btn-primary" id="enable-participant-lock-btn">Full screen ON</button>
+        <button type="button" class="btn btn-secondary" id="release-participant-lock-btn">Release</button>
+      </div>
+      <div id="participant-lock-message" class="admin-login-error" role="status"></div>
+    </div>
+
     <div class="admin-section-grid">
       <div class="table-card">
         <h3>Participant access</h3>
@@ -227,6 +266,115 @@
       }
     }
 
+    function renderAdminTimer(timer) {
+      const format = seconds => {
+        const value = Math.max(0, Math.floor(Number(seconds) || 0));
+        return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+      };
+      document.getElementById("admin-main-timer").textContent = format(timer.main_remaining_seconds);
+      document.getElementById("admin-level-timer").textContent = format(timer.level_remaining_seconds);
+      document.getElementById("admin-timer-level").textContent = timer.level.charAt(0).toUpperCase() + timer.level.slice(1);
+      const allPaused = timer.main_paused && timer.level_paused;
+      document.getElementById("timer-status").textContent = allPaused ? "Both paused" : "Independent control";
+      document.getElementById("timer-status").className = `status-badge ${allPaused ? "status-rejected" : "status-accepted"}`;
+      document.getElementById("admin-main-status").textContent = timer.main_paused ? "Paused" : "Running";
+      document.getElementById("admin-level-status").textContent = timer.level_paused ? "Paused" : "Running";
+      document.getElementById("pause-main-timer-btn").disabled = timer.main_paused;
+      document.getElementById("resume-main-timer-btn").disabled = !timer.main_paused;
+      document.getElementById("pause-level-timer-btn").disabled = timer.level_paused;
+      document.getElementById("resume-level-timer-btn").disabled = !timer.level_paused;
+    }
+
+    async function controlTimer(timer, action) {
+      const message = document.getElementById("timer-control-message");
+      try {
+        const response = await fetch("/api/admin/timer/control", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timer, action })
+        });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || "Timer update failed");
+        renderAdminTimer(result.timer);
+        const actionLabel = action === "restart" ? "restarted" : `${action}d`;
+        message.textContent = `${timer === "main" ? "Main" : "Level"} timer ${actionLabel}.`;
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    function connectAdminTimer() {
+      fetch("/api/timer/state")
+        .then(response => response.json())
+        .then(result => {
+          if (result.success) {
+            renderAdminTimer(result.timer);
+            renderParticipantPolicy(result.timer);
+          }
+        });
+      const stream = new EventSource("/api/timer/stream");
+      stream.addEventListener("timer", event => {
+        const timer = JSON.parse(event.data);
+        renderAdminTimer(timer);
+        renderParticipantPolicy(timer);
+      });
+    }
+
+    function renderParticipantLock(enabled) {
+      const status = document.getElementById("participant-lock-status");
+      status.textContent = enabled ? "Full screen ON" : "Released";
+      status.className = `status-badge ${enabled ? "status-accepted" : "status-rejected"}`;
+      document.getElementById("enable-participant-lock-btn").disabled = enabled;
+      document.getElementById("release-participant-lock-btn").disabled = !enabled;
+    }
+
+    function renderParticipantPolicy(timer) {
+      if (timer.participant_violation) {
+        const status = document.getElementById("participant-lock-status");
+        status.textContent = "VIOLATION";
+        status.className = "status-badge status-rejected";
+        document.getElementById("enable-participant-lock-btn").disabled = false;
+        document.getElementById("release-participant-lock-btn").disabled = false;
+      } else {
+        renderParticipantLock(timer.participant_lock_enabled);
+      }
+    }
+
+    async function controlParticipantLock(action) {
+      const message = document.getElementById("participant-lock-message");
+      try {
+        const response = await fetch("/api/admin/participant-control", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action })
+        });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || "Participant control failed");
+        renderParticipantLock(result.participant_lock_enabled);
+        message.textContent = action === "enable" ? "Participant full screen enabled." : "Participant full screen released.";
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    document.getElementById("pause-main-timer-btn").onclick = () => controlTimer("main", "pause");
+    document.getElementById("resume-main-timer-btn").onclick = () => controlTimer("main", "resume");
+    document.getElementById("restart-main-timer-btn").onclick = () => controlTimer("main", "restart");
+    document.getElementById("pause-level-timer-btn").onclick = () => controlTimer("level", "pause");
+    document.getElementById("resume-level-timer-btn").onclick = () => controlTimer("level", "resume");
+    document.getElementById("restart-level-timer-btn").onclick = () => controlTimer("level", "restart");
+    document.getElementById("enable-participant-lock-btn").onclick = () => controlParticipantLock("enable");
+    document.getElementById("release-participant-lock-btn").onclick = () => controlParticipantLock("release");
+
+    document.addEventListener("keydown", event => {
+      if (dashboard.hidden || !event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "d" || key === "r") {
+        event.preventDefault();
+        controlParticipantLock(key === "d" ? "enable" : "release");
+      }
+    });
+
     document.getElementById("add-participant-btn").onclick = async () => {
       const input = document.getElementById("participant-team-id");
       if (!input.value.trim()) return;
@@ -248,6 +396,7 @@
       dashboard.hidden = false;
       loadAdminData();
       loadAdminSummary();
+      connectAdminTimer();
     }
 
     document.getElementById("admin-login-form").onsubmit = async (event) => {

@@ -5,10 +5,13 @@ Serves visual workflow execution APIs, static frontend, and admin dashboard.
 import os
 import sys
 import json
+import time
+import queue
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, jsonify, request, send_from_directory, session, redirect
+from flask import Flask, Response, jsonify, request, send_from_directory, session, redirect, stream_with_context
 from flask_cors import CORS
 
 
@@ -26,6 +29,176 @@ GENERATED_DIR = os.path.join(BASE_DIR, "generated")
 
 ADMIN_USERNAME = "Adminpy"
 ADMIN_PASSWORD = "Admin123"
+
+LEVEL_TIME_LIMITS = {"easy": 20 * 60, "medium": 15 * 60, "hard": 10 * 60}
+MAIN_TIME_LIMIT = 40 * 60
+timer_lock = threading.Lock()
+timer_subscribers = set()
+timer_state = {
+    "started": False,
+    "main_paused": False,
+    "level_paused": False,
+    "participant_lock_enabled": False,
+    "participant_violation": False,
+    "participant_violation_reason": "",
+    "main_remaining_seconds": MAIN_TIME_LIMIT,
+    "level": "easy",
+    "level_remaining_seconds": LEVEL_TIME_LIMITS["easy"],
+    "last_tick": None,
+}
+
+
+def _timer_snapshot_locked():
+    """Return the authoritative timer values, materializing elapsed time first."""
+    if timer_state["started"]:
+        elapsed = max(0, time.monotonic() - timer_state["last_tick"])
+        timer_state["last_tick"] = time.monotonic()
+        if not timer_state["main_paused"]:
+            timer_state["main_remaining_seconds"] = max(0, timer_state["main_remaining_seconds"] - elapsed)
+        if not timer_state["level_paused"]:
+            timer_state["level_remaining_seconds"] = max(0, timer_state["level_remaining_seconds"] - elapsed)
+
+        if timer_state["main_remaining_seconds"] <= 0:
+            timer_state["main_paused"] = True
+        if timer_state["level_remaining_seconds"] <= 0:
+            timer_state["level_paused"] = True
+
+    return {
+        "paused": timer_state["main_paused"] and timer_state["level_paused"],
+        "main_paused": timer_state["main_paused"],
+        "level_paused": timer_state["level_paused"],
+        "participant_lock_enabled": timer_state["participant_lock_enabled"],
+        "participant_violation": timer_state["participant_violation"],
+        "participant_violation_reason": timer_state["participant_violation_reason"],
+        "main_remaining_seconds": int(timer_state["main_remaining_seconds"]),
+        "level": timer_state["level"],
+        "level_remaining_seconds": int(timer_state["level_remaining_seconds"]),
+        "main_total_seconds": MAIN_TIME_LIMIT,
+        "level_total_seconds": LEVEL_TIME_LIMITS[timer_state["level"]],
+    }
+
+
+def timer_snapshot():
+    with timer_lock:
+        return _timer_snapshot_locked()
+
+
+def _broadcast_timer_state():
+    snapshot = timer_snapshot()
+    for subscriber in list(timer_subscribers):
+        try:
+            subscriber.put_nowait(snapshot)
+        except queue.Full:
+            pass
+
+
+@app.route("/api/timer/state", methods=["GET"])
+def get_timer_state():
+    return jsonify({"success": True, "timer": timer_snapshot()})
+
+
+@app.route("/api/timer/stream", methods=["GET"])
+def timer_stream():
+    subscriber = queue.Queue(maxsize=3)
+    timer_subscribers.add(subscriber)
+
+    @stream_with_context
+    def events():
+        try:
+            subscriber.put(timer_snapshot())
+            while True:
+                try:
+                    snapshot = subscriber.get(timeout=1)
+                except queue.Empty:
+                    snapshot = timer_snapshot()
+                yield f"event: timer\ndata: {json.dumps(snapshot)}\n\n"
+        finally:
+            timer_subscribers.discard(subscriber)
+
+    return Response(events(), mimetype="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    })
+
+
+@app.route("/api/timer/level", methods=["POST"])
+def set_timer_level():
+    level = str((request.get_json() or {}).get("level", "")).lower()
+    if level not in LEVEL_TIME_LIMITS:
+        return jsonify({"success": False, "error": "Invalid level"}), 400
+
+    with timer_lock:
+        if not timer_state["started"]:
+            timer_state["started"] = True
+            timer_state["last_tick"] = time.monotonic()
+        _timer_snapshot_locked()
+        if timer_state["level"] != level:
+            timer_state["level"] = level
+            timer_state["level_remaining_seconds"] = LEVEL_TIME_LIMITS[level]
+            if timer_state["started"] and not timer_state["level_paused"]:
+                timer_state["last_tick"] = time.monotonic()
+        snapshot = _timer_snapshot_locked()
+    _broadcast_timer_state()
+    return jsonify({"success": True, "timer": snapshot})
+
+
+@app.route("/api/admin/timer/control", methods=["POST"])
+def control_timer():
+    payload = request.get_json() or {}
+    action = str(payload.get("action", "")).lower()
+    timer_name = str(payload.get("timer", "")).lower()
+    if timer_name not in {"main", "level"}:
+        return jsonify({"success": False, "error": "Timer must be main or level"}), 400
+    if action not in {"pause", "resume", "restart"}:
+        return jsonify({"success": False, "error": "Action must be pause, resume, or restart"}), 400
+
+    with timer_lock:
+        if not timer_state["started"]:
+            timer_state["started"] = True
+            timer_state["last_tick"] = time.monotonic()
+        _timer_snapshot_locked()
+        pause_key = f"{timer_name}_paused"
+        remaining_key = f"{timer_name}_remaining_seconds"
+        if action == "restart":
+            total_seconds = MAIN_TIME_LIMIT if timer_name == "main" else LEVEL_TIME_LIMITS[timer_state["level"]]
+            timer_state[remaining_key] = total_seconds
+            timer_state[pause_key] = False
+        else:
+            timer_state[pause_key] = action == "pause" or timer_state[remaining_key] <= 0
+        if action == "resume" and timer_state[remaining_key] > 0:
+            timer_state[pause_key] = False
+        timer_state["last_tick"] = time.monotonic()
+        snapshot = _timer_snapshot_locked()
+    _broadcast_timer_state()
+    return jsonify({"success": True, "timer": snapshot})
+
+
+@app.route("/api/admin/participant-control", methods=["POST"])
+def control_participant_lock():
+    action = str((request.get_json() or {}).get("action", "")).lower()
+    if action not in {"enable", "release"}:
+        return jsonify({"success": False, "error": "Action must be enable or release"}), 400
+
+    with timer_lock:
+        timer_state["participant_lock_enabled"] = action == "enable"
+        timer_state["participant_violation"] = False
+        timer_state["participant_violation_reason"] = ""
+        snapshot = _timer_snapshot_locked()
+    _broadcast_timer_state()
+    return jsonify({"success": True, "participant_lock_enabled": snapshot["participant_lock_enabled"]})
+
+
+@app.route("/api/participant/lock-violation", methods=["POST"])
+def report_participant_lock_violation():
+    reason = str((request.get_json() or {}).get("reason", "Fullscreen or focus was lost"))[:160]
+    with timer_lock:
+        if timer_state["participant_lock_enabled"]:
+            timer_state["participant_violation"] = True
+            timer_state["participant_violation_reason"] = reason
+        snapshot = _timer_snapshot_locked()
+    _broadcast_timer_state()
+    return jsonify({"success": True, "participant_violation": snapshot["participant_violation"]})
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)

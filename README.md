@@ -21,10 +21,12 @@ PYLOOM is a browser-based visual Python programming platform where users assembl
 ```powershell
 pip install -r backend/requirements.txt
 ```
+script activation :
+    .venv\Scripts\activate
 
 ### 2. Run Python Server
 ```powershell
-python backend/app.py
+py backend/app.py
 ```
 
 ### 3. Open in Browser

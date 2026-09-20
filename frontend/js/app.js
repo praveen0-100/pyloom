@@ -17,6 +17,7 @@ const flowState = {
 
 const MAX_MAPPING_TRIALS = 3;
 const QUESTIONS_PER_LEVEL = { easy: 5, medium: 3, hard: 2 };
+let activeTimerLevel = null;
 
 function getEventCreditState() {
   try {
@@ -258,8 +259,95 @@ document.addEventListener("DOMContentLoaded", async () => {
   initModuleDragEvents();
   initActionButtons();
 
-  startTimer(20, onTimeExpired);
+  initializeParticipantLockUI();
+  initializeSharedTimer("easy", onLevelTimeExpired, onMainTimeExpired, handleParticipantLockChange);
 });
+
+let participantLockEnabled = false;
+
+function initializeParticipantLockUI() {
+  const overlay = document.getElementById("participant-lock-overlay");
+  const enterButton = document.getElementById("enter-participant-fullscreen-btn");
+  if (!overlay || !enterButton) return;
+
+  const requestFullscreen = async () => {
+    if (!participantLockEnabled) return;
+    fullscreenTransitionUntil = Date.now() + 1500;
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch (error) {
+      console.warn("Fullscreen permission was not granted:", error);
+    }
+    updateParticipantLockOverlay();
+  };
+
+  enterButton.addEventListener("click", requestFullscreen);
+  document.addEventListener("fullscreenchange", updateParticipantLockOverlay);
+  document.addEventListener("fullscreenchange", monitorParticipantActivity);
+  document.addEventListener("visibilitychange", () => {
+    monitorParticipantActivity();
+    updateParticipantLockOverlay();
+  });
+  window.addEventListener("blur", monitorParticipantActivity);
+  window.addEventListener("resize", monitorParticipantActivity);
+  window.addEventListener("focus", updateParticipantLockOverlay);
+}
+
+function updateParticipantLockOverlay() {
+  const overlay = document.getElementById("participant-lock-overlay");
+  if (!overlay) return;
+  const needsFullscreen = participantLockEnabled && (participantLockViolation || (!document.fullscreenElement && document.visibilityState === "visible"));
+  const title = document.getElementById("participant-lock-title");
+  const message = document.getElementById("participant-lock-message");
+  const button = document.getElementById("enter-participant-fullscreen-btn");
+  if (participantLockViolation) {
+    if (title) title.textContent = "Participant session locked";
+    if (message) message.textContent = "Exam activity changed outside the participant console. An administrator must release and re-enable the session.";
+    if (button) button.hidden = true;
+  } else {
+    if (title) title.textContent = "Participant mode is active";
+    if (message) message.textContent = "Stay in this participant console. Full screen is required while the competition is locked.";
+    if (button) button.hidden = false;
+  }
+  overlay.hidden = !needsFullscreen;
+}
+
+function handleParticipantLockChange(enabled, violation = false) {
+  participantLockEnabled = Boolean(enabled);
+  participantLockViolation = Boolean(violation);
+  if (!participantLockEnabled) violationReported = false;
+  document.body.classList.toggle("participant-lock-active", participantLockEnabled);
+  if (!participantLockEnabled && document.fullscreenElement) {
+    const exitPromise = document.exitFullscreen?.();
+    exitPromise?.catch(() => {});
+  }
+  updateParticipantLockOverlay();
+}
+
+let participantLockViolation = false;
+let violationReported = false;
+let fullscreenTransitionUntil = 0;
+
+function monitorParticipantActivity() {
+  if (!participantLockEnabled || participantLockViolation) return;
+  if (Date.now() < fullscreenTransitionUntil) return;
+  const activityChanged = document.visibilityState === "hidden" || !document.fullscreenElement;
+  if (!activityChanged || violationReported) return;
+  violationReported = true;
+  participantLockViolation = true;
+  updateParticipantLockOverlay();
+  fetch("/api/participant/lock-violation", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: document.visibilityState === "hidden" ? "Participant tab or window lost visibility" : "Participant exited browser full screen" })
+  }).catch(() => {});
+}
+
+function startLevelTimer(level) {
+  const normalizedLevel = (level || "easy").toLowerCase();
+  activeTimerLevel = normalizedLevel;
+  setParticipantTimerLevel(normalizedLevel);
+}
 
 async function loadMissionsList() {
   try {
@@ -310,7 +398,11 @@ async function loadMissionData(missionId) {
 
     flowState.missionId = missionId;
     flowState.round = res.mission.round || 1;
-    // Loading a different question restores that question's own counter.
+    const missionLevel = (res.mission.difficulty || "easy").toLowerCase();
+    // The level timer is shared by all questions in a level and restarts only
+    // when the participant advances to a different difficulty.
+    if (missionLevel !== activeTimerLevel) startLevelTimer(missionLevel);
+
     saveTrialState(getTrialState());
     enterDifficulty(res.mission.difficulty);
     renderLevelNavigation(res.mission.difficulty);
@@ -331,7 +423,6 @@ async function loadMissionData(missionId) {
 
     // Render test suite preview
     renderTestList(res.tests);
-    resetTimer(res.mission.time_limit_minutes || 20);
   } catch (err) {
     console.error("Failed to load mission:", err);
   }
@@ -539,8 +630,16 @@ async function handleSubmit() {
   }
 }
 
-function onTimeExpired() {
-  alert("Time expired! Submissions locked.");
+function lockTimedActions(message) {
+  alert(message);
   document.getElementById("submit-flow-btn").disabled = true;
   document.getElementById("run-flow-btn").disabled = true;
+}
+
+function onLevelTimeExpired() {
+  lockTimedActions("Level time expired! Submissions locked.");
+}
+
+function onMainTimeExpired() {
+  lockTimedActions("Main event time expired! Submissions locked.");
 }
