@@ -223,7 +223,7 @@ def save_json(filename, data):
         json.dump(data, f, indent=2)
 
 
-def record_progress(team_id, mission_id, status, flow=None, scoring=None):
+def record_progress(team_id, mission_id, status, flow=None, scoring=None, total_credits=None):
     progress = load_json("progress.json")
     participant = progress.setdefault(team_id, {})
     current = participant.get(mission_id, {})
@@ -232,6 +232,11 @@ def record_progress(team_id, mission_id, status, flow=None, scoring=None):
         current["flow"] = flow
     if scoring is not None:
         current["scoring"] = scoring
+    if total_credits is not None:
+        current["credits"] = total_credits
+        # The leaderboard always reflects the best credits a team has ever earned on
+        # this question, so a later experiment/regression never lowers their score.
+        current["best_credits"] = max(current.get("best_credits", 0), total_credits)
     # Completion is final for this question; later retries must not erase it.
     if current.get("status") != "completed" or status == "completed":
         current["status"] = status
@@ -270,6 +275,43 @@ def admin_logout():
 @app.route("/generated/<path:filename>")
 def serve_generated(filename):
     return send_from_directory(GENERATED_DIR, filename)
+
+@app.route("/api/participant/register", methods=["POST"])
+def register_participant():
+    """Public self-registration for the participant console (login-style gate).
+
+    Upserts the player's profile into participants.json keyed by their chosen
+    Player ID (used as team_id everywhere else in the API) and marks them active
+    so they can start immediately without waiting on admin approval.
+    """
+    payload = request.get_json() or {}
+    team_id = str(payload.get("team_id", "")).strip()
+    player_name = str(payload.get("player_name", "")).strip()
+    college = str(payload.get("college", "")).strip()
+    year_of_study = str(payload.get("year_of_study", "")).strip()
+
+    if not team_id or not player_name or not college or not year_of_study:
+        return jsonify({"success": False, "error": "Player name, ID, college, and year of study are all required"}), 400
+
+    participants = load_json("participants.json")
+    participant = next((p for p in participants if p.get("team_id") == team_id), None)
+    if participant:
+        participant["player_name"] = player_name
+        participant["college"] = college
+        participant["year_of_study"] = year_of_study
+        participant["status"] = "active"
+    else:
+        participant = {
+            "team_id": team_id,
+            "player_name": player_name,
+            "college": college,
+            "year_of_study": year_of_study,
+            "status": "active",
+        }
+        participants.append(participant)
+    save_json("participants.json", participants)
+    return jsonify({"success": True, "participant": participant})
+
 
 @app.route("/api/missions", methods=["GET"])
 def get_missions():
@@ -316,8 +358,11 @@ def run_flow():
     # 1. Validate Graph
     is_valid, val_error = validate_flow(flow, required_modules=mission.get("required_modules"))
     if not is_valid:
-        progress_record = record_progress(team_id, mission_id, "incorrect_mapping", flow=flow)
         score_data = score_flow(flow, mission, [], graph_valid=False, base_output=None, credit_penalty=hint_penalty)
+        progress_record = record_progress(
+            team_id, mission_id, "incorrect_mapping",
+            flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"]
+        )
         return jsonify({
             "success": False,
             "error": val_error,
@@ -331,8 +376,11 @@ def run_flow():
     # 2. Execute Base Flow
     exec_success, base_output = execute_flow(flow, input_data_override=mission.get("input"))
     if not exec_success:
-        progress_record = record_progress(team_id, mission_id, "tried", flow=flow)
         score_data = score_flow(flow, mission, [], graph_valid=True, base_output=None, credit_penalty=hint_penalty)
+        progress_record = record_progress(
+            team_id, mission_id, "tried",
+            flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"]
+        )
         return jsonify({
             "success": False,
             "error": base_output,
@@ -378,7 +426,7 @@ def run_flow():
     completed = all(score_data["breakdown"].get(key) == 10 for key in ("mapping_flow", "logic_building", "sample_output", "output_check"))
     progress_record = record_progress(
         team_id, mission_id, "completed" if completed else "tried",
-        flow=flow, scoring=score_data["breakdown"]
+        flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"]
     )
 
     # Detect output type (text, number, pattern, chart image)
@@ -470,15 +518,30 @@ def get_admin_submissions():
 
 
 def _admin_participants():
-    """Merge explicitly managed participants with teams that have submitted."""
+    """Merge explicitly managed participants with teams seen in submissions/progress."""
     participants = load_json("participants.json")
     submissions = load_json("submissions.json")
+    progress = load_json("progress.json")
     by_team = {p.get("team_id"): p for p in participants if p.get("team_id")}
     for submission in submissions:
         team_id = submission.get("team_id")
         if team_id and team_id not in by_team:
             by_team[team_id] = {"team_id": team_id, "status": "active"}
+    for team_id in progress:
+        if team_id and team_id not in by_team:
+            by_team[team_id] = {"team_id": team_id, "status": "active"}
     return list(by_team.values())
+
+
+def _team_earned_credits(team_id, progress):
+    """Sum of the best credits a team has ever earned across every mission attempted.
+
+    Sourced from progress.json, which is updated on every /api/run-flow call - so a
+    team's leaderboard score rises the moment they earn credits on any question,
+    without needing a separate explicit submission.
+    """
+    records = progress.get(team_id, {})
+    return sum(record.get("best_credits", 0) for record in records.values())
 
 
 def _mission_difficulty(mission):
@@ -552,7 +615,13 @@ def add_admin_participant():
     participants = load_json("participants.json")
     if any(p.get("team_id") == team_id for p in participants):
         return jsonify({"success": False, "error": "Participant already exists"}), 409
-    participants.append({"team_id": team_id, "status": "pending"})
+    participants.append({
+        "team_id": team_id,
+        "player_name": str(payload.get("player_name", "")).strip(),
+        "college": str(payload.get("college", "")).strip(),
+        "year_of_study": str(payload.get("year_of_study", "")).strip(),
+        "status": "pending",
+    })
     save_json("participants.json", participants)
     return jsonify({"success": True, "participant": participants[-1]})
 
@@ -566,6 +635,55 @@ def allow_admin_participant(team_id):
     participant["status"] = "active"
     save_json("participants.json", participants)
     return jsonify({"success": True, "participant": participant})
+
+
+@app.route("/api/admin/participants/<team_id>", methods=["PUT"])
+def update_admin_participant(team_id):
+    """Admin-only: edit a participant's profile fields (name, college, year of study)."""
+    payload = request.get_json() or {}
+    participants = load_json("participants.json")
+    participant = next((p for p in participants if p.get("team_id") == team_id), None)
+    if not participant:
+        return jsonify({"success": False, "error": "Participant not found"}), 404
+
+    for field in ("player_name", "college", "year_of_study"):
+        if field in payload:
+            participant[field] = str(payload.get(field, "")).strip()
+
+    save_json("participants.json", participants)
+    return jsonify({"success": True, "participant": participant})
+
+
+@app.route("/api/admin/leaderboard", methods=["GET"])
+def get_admin_leaderboard():
+    """Admin-only leaderboard: player ID, name, college, year of study, and total score.
+
+    Score is recorded automatically: every /api/run-flow call that earns credits on a
+    question updates that team's best_credits for the question in progress.json, and
+    this endpoint sums the best credits across every level/question a team has
+    attempted. No separate "submit" action is required for a score to appear here.
+    Participants who have not earned any credits yet are included with a score of 0
+    so the admin has full visibility into the roster.
+    """
+    participants = _admin_participants()
+    progress = load_json("progress.json")
+
+    leaderboard = []
+    for participant in participants:
+        team_id = participant.get("team_id")
+        leaderboard.append({
+            "player_id": team_id,
+            "player_name": participant.get("player_name") or "—",
+            "college": participant.get("college") or "—",
+            "year_of_study": participant.get("year_of_study") or "—",
+            "score": _team_earned_credits(team_id, progress),
+        })
+
+    leaderboard.sort(key=lambda row: row["score"], reverse=True)
+    for rank, row in enumerate(leaderboard, start=1):
+        row["rank"] = rank
+
+    return jsonify({"success": True, "leaderboard": leaderboard})
 
 if __name__ == "__main__":
     print("Starting PYLOOM Web Application on http://127.0.0.1:5000 ...")

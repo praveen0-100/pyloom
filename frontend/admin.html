@@ -49,7 +49,7 @@
     <div class="stats-row">
       <div class="stat-card">
         <div class="stat-val" id="stat-online">18</div>
-        <div class="stat-lbl">Active competition teams</div>
+        <div class="stat-lbl">Active Participants</div>
       </div>
       <div class="stat-card">
         <div class="stat-val" id="stat-submitted">0</div>
@@ -57,7 +57,7 @@
       </div>
       <div class="stat-card">
         <div class="stat-val" id="stat-avg-score">0.0</div>
-        <div class="stat-lbl">Average team credits</div>
+        <div class="stat-lbl">Average credits</div>
       </div>
     </div>
 
@@ -109,7 +109,10 @@
           <div><span>Pending participants</span><strong id="stat-pending">0</strong></div>
         </div>
         <div class="participant-add">
-          <input id="participant-team-id" class="search-input" placeholder="Team ID" autocomplete="off">
+          <input id="participant-team-id" class="search-input" placeholder="Team / Player ID" autocomplete="off">
+          <input id="participant-name" class="search-input" placeholder="Player name" autocomplete="off">
+          <input id="participant-college" class="search-input" placeholder="College" autocomplete="off">
+          <input id="participant-year" class="search-input" placeholder="Year of study" autocomplete="off">
           <button type="button" class="btn btn-primary" id="add-participant-btn">Add pending</button>
         </div>
         <div id="participant-list" class="participant-list"></div>
@@ -118,9 +121,9 @@
       <div class="table-card">
         <h3>Levels</h3>
         <div class="level-grid">
-          <div class="level-card"><strong>Easy</strong><span id="level-easy">0 / 0 completed</span></div>
-          <div class="level-card"><strong>Medium</strong><span id="level-medium">0 / 0 completed</span></div>
-          <div class="level-card"><strong>Hard</strong><span id="level-hard">0 / 0 completed</span></div>
+          <div class="level-card" data-level="easy"><strong>Easy</strong><span id="level-easy">0 / 0 completed</span></div>
+          <div class="level-card" data-level="medium"><strong>Medium</strong><span id="level-medium">0 / 0 completed</span></div>
+          <div class="level-card" data-level="hard"><strong>Hard</strong><span id="level-hard">0 / 0 completed</span></div>
         </div>
       </div>
     </div>
@@ -140,6 +143,26 @@
       <table class="admin-table">
         <thead><tr><th>Participant</th><th>Question</th><th>Status</th><th>Attempts</th><th>Saved mapping</th></tr></thead>
         <tbody id="progress-mappings-tbody"><tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No saved mappings yet.</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="table-card">
+      <h3>Participant leaderboard</h3>
+      <p style="color:var(--text-dim); margin-top:-4px;">Admin-only ranking of every participant by total score.</p>
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Player ID</th>
+            <th>Player name</th>
+            <th>College</th>
+            <th>Year of study</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboard-tbody">
+          <tr><td colspan="6" style="color:var(--text-dim); text-align:center;">Loading leaderboard…</td></tr>
+        </tbody>
       </table>
     </div>
 
@@ -227,6 +250,33 @@
         });
       } catch (err) {
         console.error("Admin summary load error:", err);
+      }
+    }
+
+    async function loadLeaderboard() {
+      try {
+        const res = await fetch("/api/admin/leaderboard");
+        const data = await res.json();
+        const tbody = document.getElementById("leaderboard-tbody");
+        if (!data.success) return;
+
+        if (!data.leaderboard.length) {
+          tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim); text-align:center;">No participants yet.</td></tr>';
+          return;
+        }
+
+        const esc = value => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        tbody.innerHTML = data.leaderboard.map(row => `
+          <tr class="${row.rank <= 3 ? `leaderboard-row-rank-${row.rank}` : ""}">
+            <td><span class="rank-badge${row.rank <= 3 ? ` rank-badge-${row.rank}` : ""}">${row.rank}</span></td>
+            <td class="cell-team">${esc(row.player_id)}</td>
+            <td>${esc(row.player_name)}</td>
+            <td>${esc(row.college)}</td>
+            <td>${esc(row.year_of_study)}</td>
+            <td class="cell-credits">${row.score}</td>
+          </tr>`).join("");
+      } catch (err) {
+        console.error("Leaderboard load error:", err);
       }
     }
 
@@ -376,15 +426,27 @@
     });
 
     document.getElementById("add-participant-btn").onclick = async () => {
-      const input = document.getElementById("participant-team-id");
-      if (!input.value.trim()) return;
+      const idInput = document.getElementById("participant-team-id");
+      const nameInput = document.getElementById("participant-name");
+      const collegeInput = document.getElementById("participant-college");
+      const yearInput = document.getElementById("participant-year");
+      if (!idInput.value.trim()) return;
       await fetch("/api/admin/participants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ team_id: input.value.trim() })
+        body: JSON.stringify({
+          team_id: idInput.value.trim(),
+          player_name: nameInput.value.trim(),
+          college: collegeInput.value.trim(),
+          year_of_study: yearInput.value.trim()
+        })
       });
-      input.value = "";
+      idInput.value = "";
+      nameInput.value = "";
+      collegeInput.value = "";
+      yearInput.value = "";
       loadAdminSummary();
+      loadLeaderboard();
     };
 
     const loginView = document.getElementById("admin-login");
@@ -396,6 +458,7 @@
       dashboard.hidden = false;
       loadAdminData();
       loadAdminSummary();
+      loadLeaderboard();
       connectAdminTimer();
     }
 
@@ -429,7 +492,7 @@
       if (result.authenticated) showDashboard();
     });
     setInterval(() => {
-      if (!dashboard.hidden) { loadAdminData(); loadAdminSummary(); }
+      if (!dashboard.hidden) { loadAdminData(); loadAdminSummary(); loadLeaderboard(); }
     }, 5000);
   </script>
 </body>

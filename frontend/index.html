@@ -11,6 +11,26 @@
 </head>
 <body>
 
+  <section class="admin-login" id="participant-register" aria-labelledby="participant-register-title">
+    <div class="admin-login-card">
+      <div class="brand-name">PYLOOM</div>
+      <h1 id="participant-register-title">Participant registration</h1>
+      <p>Register your details once to start the mission. Your Player ID identifies your submissions on the leaderboard.</p>
+      <form id="participant-register-form">
+        <label for="reg-player-name">Player name</label>
+        <input id="reg-player-name" type="text" autocomplete="name" required>
+        <label for="reg-player-id">Player ID</label>
+        <input id="reg-player-id" type="text" autocomplete="off" placeholder="e.g. PLAYER_01" required>
+        <label for="reg-player-college">Player college</label>
+        <input id="reg-player-college" type="text" autocomplete="organization" required>
+        <label for="reg-player-year">Player year of study</label>
+        <input id="reg-player-year" type="text" autocomplete="off" placeholder="e.g. YEAR OF STUDY" required>
+        <button type="submit" class="btn btn-primary">Enter competition</button>
+        <div id="participant-register-error" class="admin-login-error" role="alert"></div>
+      </form>
+    </div>
+  </section>
+
   <div id="participant-lock-overlay" class="participant-lock-overlay" hidden>
     <div class="participant-lock-card">
       <div class="participant-lock-icon">⛶</div>
@@ -20,7 +40,7 @@
     </div>
   </div>
 
-  <header class="app-header">
+  <header class="app-header app-gated" hidden>
     <div style="display:flex; align-items:center;">
       <a href="/" class="brand">
         <div class="brand-icon brand-logo" aria-hidden="true">
@@ -77,10 +97,14 @@
         <span class="player-level-icon">★</span>
         <span>LVL <strong id="player-level">1</strong></span>
       </div>
+      <div class="stat-pill" id="player-identity-pill" title="Registered player">
+        <span id="player-identity-name">—</span>
+        <span id="player-identity-id" style="opacity:.7;"></span>
+      </div>
     </div>
   </header>
 
-  <main class="app-container">
+  <main class="app-container app-gated" hidden>
 
     <aside class="sidebar-left">
       <div class="panel-header">
@@ -302,7 +326,7 @@
 
   </main>
 
-  <footer class="app-footer">
+  <footer class="app-footer app-gated" hidden>
     <div class="footer-meta">PYLOOM visual programming engine</div>
     <div class="action-btns">
       <button type="button" class="btn btn-secondary" id="reset-canvas-btn">Clear canvas</button>

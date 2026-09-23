@@ -29,7 +29,7 @@ const API = {
         }))
       },
       hint_used: Boolean(flowState.hintUsed),
-      team_id: "TEAM_07"
+      team_id: (typeof getTeamId === "function" ? getTeamId() : null) || "TEAM_07"
     };
     const res = await fetch("/api/run-flow", {
       method: "POST",

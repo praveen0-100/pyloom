@@ -1,6 +1,9 @@
 [
   {
-    "team_id": "TEAM_08",
+    "team_id": "PLAYER_02",
+    "player_name": "test2",
+    "college": "XYZ",
+    "year_of_study": "4",
     "status": "active"
   }
 ]

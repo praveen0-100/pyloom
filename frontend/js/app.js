@@ -19,6 +19,93 @@ const MAX_MAPPING_TRIALS = 3;
 const QUESTIONS_PER_LEVEL = { easy: 5, medium: 3, hard: 2 };
 let activeTimerLevel = null;
 
+const PLAYER_STORAGE_KEY = "pyloom-player";
+
+function getRegisteredPlayer() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PLAYER_STORAGE_KEY) || "null");
+    if (stored && stored.teamId && stored.playerName && stored.college && stored.yearOfStudy) return stored;
+  } catch (err) {
+    /* ignore malformed storage */
+  }
+  return null;
+}
+
+function getTeamId() {
+  return getRegisteredPlayer()?.teamId || "TEAM_07";
+}
+
+function renderPlayerIdentity() {
+  const player = getRegisteredPlayer();
+  const nameEl = document.getElementById("player-identity-name");
+  const idEl = document.getElementById("player-identity-id");
+  if (!player || !nameEl || !idEl) return;
+  nameEl.textContent = player.playerName;
+  idEl.textContent = `#${player.teamId}`;
+}
+
+function initParticipantRegistration() {
+  return new Promise(resolve => {
+    const gate = document.getElementById("participant-register");
+    const form = document.getElementById("participant-register-form");
+    const errorEl = document.getElementById("participant-register-error");
+
+    const revealApp = () => {
+      gate.hidden = true;
+      document.querySelectorAll(".app-gated").forEach(el => { el.hidden = false; });
+      renderPlayerIdentity();
+      resolve();
+    };
+
+    const existingPlayer = getRegisteredPlayer();
+    if (existingPlayer) {
+      revealApp();
+      return;
+    }
+
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      errorEl.textContent = "";
+      const player = {
+        playerName: document.getElementById("reg-player-name").value.trim(),
+        teamId: document.getElementById("reg-player-id").value.trim(),
+        college: document.getElementById("reg-player-college").value.trim(),
+        yearOfStudy: document.getElementById("reg-player-year").value.trim()
+      };
+      if (!player.playerName || !player.teamId || !player.college || !player.yearOfStudy) {
+        errorEl.textContent = "Please fill in every field.";
+        return;
+      }
+      const submitBtn = form.querySelector("button[type=submit]");
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch("/api/participant/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            team_id: player.teamId,
+            player_name: player.playerName,
+            college: player.college,
+            year_of_study: player.yearOfStudy
+          })
+        });
+        const result = await res.json();
+        if (!result.success) {
+          errorEl.textContent = result.error || "Registration failed. Please try again.";
+          submitBtn.disabled = false;
+          return;
+        }
+        localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(player));
+        revealApp();
+      } catch (err) {
+        console.error("Participant registration error:", err);
+        errorEl.textContent = "Could not reach the server. Please try again.";
+        submitBtn.disabled = false;
+      }
+    });
+  });
+}
+
 function getEventCreditState() {
   try {
     return { credits: 10, enteredLevels: [], ...JSON.parse(localStorage.getItem("pyloom-event-credits") || "{}") };
@@ -234,6 +321,8 @@ function showMappingToast(message, type) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  await initParticipantRegistration();
+
   renderGamification();
   renderEventCredits();
   initCanvas();
@@ -364,7 +453,7 @@ async function loadMissionsList() {
 
 async function loadParticipantProgress() {
   try {
-    const result = await API.getProgress("TEAM_07");
+    const result = await API.getProgress(getTeamId());
     if (!result.success) return;
     const state = getGamificationState();
     flowState.progressRecords = result.progress || {};
@@ -623,7 +712,7 @@ async function handleRunFlow() {
 
 async function handleSubmit() {
   try {
-    const res = await API.submitSolution("TEAM_07", flowState.missionId, flowState);
+    const res = await API.submitSolution(getTeamId(), flowState.missionId, flowState);
     alert(`Solution Submitted Successfully!\nStatus: ${res.status.toUpperCase()}\nCredits Earned: ${res.credits} / 40`);
   } catch (err) {
     alert(`Submission failed: ${err.message}`);
