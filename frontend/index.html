@@ -112,6 +112,12 @@
         <span class="panel-header-hint">Drag to canvas</span>
       </div>
 
+      <div class="question-input-card" id="question-input-card">
+        <div class="question-input-title">Question input</div>
+        <pre id="mission-input" class="question-input-value">—</pre>
+        <div class="question-input-hint">Type this data into the Input node yourself, then connect the flow.</div>
+      </div>
+
       <div class="search-box">
         <input type="text" id="module-search" class="search-input" placeholder="Search nodes…" autocomplete="off">
       </div>
@@ -148,6 +154,13 @@
               <div class="module-desc">Final result output node</div>
             </div>
           </div>
+          <div class="module-card" draggable="true" data-module-type="Get">
+            <div class="module-icon cat-data">GT</div>
+            <div class="module-info">
+              <div class="module-name">Get</div>
+              <div class="module-desc">Read a key from a dictionary</div>
+            </div>
+          </div>
         </div>
 
         <div class="module-category">
@@ -180,11 +193,32 @@
               <div class="module-desc">Add two values</div>
             </div>
           </div>
+          <div class="module-card" draggable="true" data-module-type="Subtract">
+            <div class="module-icon cat-math">-</div>
+            <div class="module-info">
+              <div class="module-name">Subtract</div>
+              <div class="module-desc">Subtract two values</div>
+            </div>
+          </div>
+          <div class="module-card" draggable="true" data-module-type="Multiply">
+            <div class="module-icon cat-math">×</div>
+            <div class="module-info">
+              <div class="module-name">Multiply</div>
+              <div class="module-desc">Multiply values</div>
+            </div>
+          </div>
           <div class="module-card" draggable="true" data-module-type="Divide">
             <div class="module-icon cat-math">÷</div>
             <div class="module-info">
               <div class="module-name">Divide</div>
               <div class="module-desc">Divide numerator/denom</div>
+            </div>
+          </div>
+          <div class="module-card" draggable="true" data-module-type="Round">
+            <div class="module-icon cat-math">RD</div>
+            <div class="module-info">
+              <div class="module-name">Round</div>
+              <div class="module-desc">Round to decimals</div>
             </div>
           </div>
         </div>
@@ -205,6 +239,13 @@
               <div class="module-desc">Find &amp; replace text</div>
             </div>
           </div>
+          <div class="module-card" draggable="true" data-module-type="Reverse">
+            <div class="module-icon cat-string">RV</div>
+            <div class="module-info">
+              <div class="module-name">Reverse</div>
+              <div class="module-desc">Reverse text</div>
+            </div>
+          </div>
           <div class="module-card" draggable="true" data-module-type="Pattern">
             <div class="module-icon cat-string">★</div>
             <div class="module-info">
@@ -216,6 +257,34 @@
 
         <div class="module-category">
           <div class="category-title">Logic &amp; charts</div>
+          <div class="module-card" draggable="true" data-module-type="Compare">
+            <div class="module-icon cat-logic">?</div>
+            <div class="module-info">
+              <div class="module-name">Compare</div>
+              <div class="module-desc">Returns True / False</div>
+            </div>
+          </div>
+          <div class="module-card" draggable="true" data-module-type="IfElse">
+            <div class="module-icon cat-logic">IF</div>
+            <div class="module-info">
+              <div class="module-name">IfElse</div>
+              <div class="module-desc">Pick a value by condition</div>
+            </div>
+          </div>
+          <div class="module-card" draggable="true" data-module-type="Lookup">
+            <div class="module-icon cat-logic">LK</div>
+            <div class="module-info">
+              <div class="module-name">Lookup</div>
+              <div class="module-desc">Landmark table lookup</div>
+            </div>
+          </div>
+          <div class="module-card" draggable="true" data-module-type="Hemisphere">
+            <div class="module-icon cat-logic">HM</div>
+            <div class="module-info">
+              <div class="module-name">Hemisphere</div>
+              <div class="module-desc">Classify hemisphere</div>
+            </div>
+          </div>
           <div class="module-card" draggable="true" data-module-type="Filter">
             <div class="module-icon cat-logic">FL</div>
             <div class="module-info">
@@ -284,7 +353,6 @@
           </div>
           <p id="mission-desc" class="mission-desc">Calculate the average of student marks.</p>
           <div class="mission-details">
-            <div><span>Input</span><pre id="mission-input">—</pre></div>
             <div><span>Operation</span><p id="mission-operation">—</p></div>
             <div><span>Expected output</span><pre id="mission-expected">—</pre></div>
           </div>
@@ -359,6 +427,7 @@
       </div>
       <div class="modal-body">
         <p>Your three mapping trials have been used. Review the required node order, connect each output to the next input, and compare your result with the sample output.</p>
+        <div id="hint-guide" class="hint-guide"></div>
         <p class="hint-cost">Mapping solution hint: <strong>3 credits deducted</strong></p>
       </div>
       <div class="hint-modal-actions">

@@ -17,7 +17,7 @@ from flask_cors import CORS
 
 from backend.engine.validator import validate_flow
 from backend.engine.executor import execute_flow
-from backend.engine.scorer import score_flow
+from backend.engine.scorer import score_flow, outputs_match
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
@@ -30,7 +30,7 @@ GENERATED_DIR = os.path.join(BASE_DIR, "generated")
 ADMIN_USERNAME = "Adminpy"
 ADMIN_PASSWORD = "Admin123"
 
-LEVEL_TIME_LIMITS = {"easy": 20 * 60, "medium": 15 * 60, "hard": 10 * 60}
+LEVEL_TIME_LIMITS = {"easy": 18 * 60, "medium": 15 * 60, "hard": 12 * 60}
 MAIN_TIME_LIMIT = 40 * 60
 timer_lock = threading.Lock()
 timer_subscribers = set()
@@ -223,7 +223,7 @@ def save_json(filename, data):
         json.dump(data, f, indent=2)
 
 
-def record_progress(team_id, mission_id, status, flow=None, scoring=None, total_credits=None):
+def record_progress(team_id, mission_id, status, flow=None, scoring=None, total_credits=None, all_tests_passed=None):
     progress = load_json("progress.json")
     participant = progress.setdefault(team_id, {})
     current = participant.get(mission_id, {})
@@ -237,6 +237,10 @@ def record_progress(team_id, mission_id, status, flow=None, scoring=None, total_
         # The leaderboard always reflects the best credits a team has ever earned on
         # this question, so a later experiment/regression never lowers their score.
         current["best_credits"] = max(current.get("best_credits", 0), total_credits)
+    if all_tests_passed is not None:
+        # Once every test case (hidden and visible) has passed for this question,
+        # that "entire pass case" achievement is kept even if a later retry regresses.
+        current["all_tests_passed"] = current.get("all_tests_passed", False) or bool(all_tests_passed)
     # Completion is final for this question; later retries must not erase it.
     if current.get("status") != "completed" or status == "completed":
         current["status"] = status
@@ -369,7 +373,9 @@ def run_flow():
             "output": None,
             "test_results": [],
             "credits": score_data["total_credits"],
-            "scoring_breakdown": score_data["breakdown"]
+            "scoring_breakdown": score_data["breakdown"],
+            "question_credits": score_data["question_credits"],
+            "all_passed": score_data["all_passed"]
             ,"progress": progress_record
         })
 
@@ -387,7 +393,9 @@ def run_flow():
             "output": None,
             "test_results": [],
             "credits": score_data["total_credits"],
-            "scoring_breakdown": score_data["breakdown"]
+            "scoring_breakdown": score_data["breakdown"],
+            "question_credits": score_data["question_credits"],
+            "all_passed": score_data["all_passed"]
             ,"progress": progress_record
         })
 
@@ -401,12 +409,7 @@ def run_flow():
         
         passed = False
         if t_success:
-            if isinstance(t_expected, float) and isinstance(t_out, (int, float)):
-                passed = abs(float(t_out) - t_expected) < 1e-4
-            elif t_expected == "chart" and isinstance(t_out, str) and t_out.startswith("/generated/"):
-                passed = True
-            else:
-                passed = str(t_out) == str(t_expected)
+            passed = outputs_match(t_out, t_expected)
 
         t_res = {
             "test_id": t.get("test_id"),
@@ -423,10 +426,12 @@ def run_flow():
 
     # 4. Calculate Credits
     score_data = score_flow(flow, mission, test_results, graph_valid=True, base_output=base_output, credit_penalty=hint_penalty)
-    completed = all(score_data["breakdown"].get(key) == 10 for key in ("mapping_flow", "logic_building", "sample_output", "output_check"))
+    completed = score_data["all_passed"]
+    all_tests_passed = bool(test_results) and all(t.get("passed") for t in test_results)
     progress_record = record_progress(
         team_id, mission_id, "completed" if completed else "tried",
-        flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"]
+        flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"],
+        all_tests_passed=all_tests_passed
     )
 
     # Detect output type (text, number, pattern, chart image)
@@ -438,7 +443,9 @@ def run_flow():
         "is_chart": is_chart,
         "test_results": test_results,
         "credits": score_data["total_credits"],
-        "scoring_breakdown": score_data["breakdown"]
+        "scoring_breakdown": score_data["breakdown"],
+        "question_credits": score_data["question_credits"],
+        "all_passed": score_data["all_passed"]
         ,"progress": progress_record
     })
 
@@ -463,6 +470,16 @@ def submit_solution():
 
     is_valid, _ = validate_flow(flow, required_modules=mission.get("required_modules"))
 
+    # Execute the flow against the mission's own sample input first - without this,
+    # base_output stayed None and the sample_output/output_check scores were always
+    # marked wrong even for a correct mapping, which made Submit disagree with Run Flow.
+    base_output = None
+    exec_success = False
+    if is_valid:
+        exec_success, base_output = execute_flow(flow, input_data_override=mission.get("input"))
+        if not exec_success:
+            base_output = None
+
     test_results = []
     if is_valid:
         for t in tests:
@@ -470,15 +487,20 @@ def submit_solution():
             passed = False
             t_expected = t.get("expected")
             if t_success:
-                if isinstance(t_expected, float) and isinstance(t_out, (int, float)):
-                    passed = abs(float(t_out) - t_expected) < 1e-4
-                elif t_expected == "chart" and isinstance(t_out, str) and t_out.startswith("/generated/"):
-                    passed = True
-                else:
-                    passed = str(t_out) == str(t_expected)
+                passed = outputs_match(t_out, t_expected)
             test_results.append({"passed": passed, "hidden": t.get("hidden", False)})
 
-    score_data = score_flow(flow, mission, test_results, graph_valid=is_valid, base_output=None, credit_penalty=hint_penalty)
+    score_data = score_flow(flow, mission, test_results, graph_valid=is_valid, base_output=base_output, credit_penalty=hint_penalty)
+    all_tests_passed = bool(test_results) and all(t.get("passed") for t in test_results)
+
+    # Submitting records progress the same way Run Flow does, so the credits earned
+    # here actually count toward this team's saved progress and leaderboard score.
+    completed = score_data["all_passed"]
+    record_progress(
+        team_id, mission_id, "completed" if completed else "tried",
+        flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"],
+        all_tests_passed=all_tests_passed
+    )
 
     submissions = load_json("submissions.json")
     record = {
@@ -487,11 +509,12 @@ def submit_solution():
         "mission_title": mission.get("title", "Unknown Mission"),
         "round": mission.get("round", 1),
         "credits": score_data["total_credits"],
-        "status": "accepted" if is_valid else "rejected",
+        "mission_credits": score_data["question_credits"],
+        "status": "accepted" if is_valid and exec_success else "rejected",
         "flow": flow,
         "submitted_at": os.popen("date /t").read().strip() if os.name == 'nt' else "2026-09-16"
     }
-    
+
     # Update or add submission for team
     existing_idx = next((i for i, s in enumerate(submissions) if s["team_id"] == team_id and s["mission_id"] == mission_id), None)
     if existing_idx is not None:
@@ -503,8 +526,12 @@ def submit_solution():
 
     return jsonify({
         "submitted": True,
+        "success": True,
+        "all_passed": score_data["all_passed"],
         "credits": score_data["total_credits"],
-        "status": "accepted" if is_valid else "rejected"
+        "scoring_breakdown": score_data["breakdown"],
+        "mission_credits": score_data["question_credits"],
+        "status": record["status"]
     })
 
 @app.route("/api/admin/submissions", methods=["GET"])
@@ -546,6 +573,52 @@ def _team_earned_credits(team_id, progress):
 
 def _mission_difficulty(mission):
     return mission.get("difficulty", "easy").lower()
+
+
+# On top of the per-question credits, a team can earn a one-time bonus for each
+# difficulty level, split evenly across four factors: finishing every question in
+# the level, mapping every question correctly, passing every test case (hidden and
+# visible - the "entire pass case"), and solving efficiently (few retries).
+LEVEL_BONUS_TOTAL = {"easy": 8, "medium": 12, "hard": 16}
+PERFORMANCE_MAX_AVG_ATTEMPTS = 2
+
+
+def _level_bonus(team_id, progress, missions, difficulty):
+    level_missions = [m for m in missions if _mission_difficulty(m) == difficulty]
+    if not level_missions:
+        return 0, {}
+    records = progress.get(team_id, {})
+    level_records = [records.get(m["id"], {}) for m in level_missions]
+
+    level_completed = all(r.get("status") == "completed" for r in level_records)
+    if not level_completed:
+        return 0, {"level_completed": False}
+
+    component = LEVEL_BONUS_TOTAL[difficulty] / 4
+    factors = {"level_completed": True}
+
+    factors["correct_mapping"] = all((r.get("scoring") or {}).get("mapping_flow", 0) > 0 for r in level_records)
+    factors["entire_pass_case"] = all(r.get("all_tests_passed") for r in level_records)
+    avg_attempts = sum(r.get("attempts", 1) for r in level_records) / len(level_records)
+    factors["performance"] = avg_attempts <= PERFORMANCE_MAX_AVG_ATTEMPTS
+
+    bonus = component  # level completion itself always earns its share
+    bonus += component * factors["correct_mapping"]
+    bonus += component * factors["entire_pass_case"]
+    bonus += component * factors["performance"]
+    return round(bonus, 2), factors
+
+
+def _final_credits(team_id, progress, missions):
+    """Base per-question credits plus the level-completion bonus for every level."""
+    base = _team_earned_credits(team_id, progress)
+    level_bonuses = {}
+    bonus_total = 0
+    for difficulty in ("easy", "medium", "hard"):
+        bonus, factors = _level_bonus(team_id, progress, missions, difficulty)
+        level_bonuses[difficulty] = {"bonus": bonus, **factors}
+        bonus_total += bonus
+    return round(base + bonus_total, 2), level_bonuses
 
 
 @app.route("/api/admin/summary", methods=["GET"])
@@ -661,22 +734,27 @@ def get_admin_leaderboard():
     Score is recorded automatically: every /api/run-flow call that earns credits on a
     question updates that team's best_credits for the question in progress.json, and
     this endpoint sums the best credits across every level/question a team has
-    attempted. No separate "submit" action is required for a score to appear here.
-    Participants who have not earned any credits yet are included with a score of 0
-    so the admin has full visibility into the roster.
+    attempted, plus a one-time bonus per level once a team has fully completed it -
+    the bonus is split across level completion, correct mapping on every question,
+    passing every test case ("entire pass case"), and solving efficiently
+    (performance). Participants who have not earned any credits yet are included
+    with a score of 0 so the admin has full visibility into the roster.
     """
     participants = _admin_participants()
     progress = load_json("progress.json")
+    missions = load_json("missions.json")
 
     leaderboard = []
     for participant in participants:
         team_id = participant.get("team_id")
+        score, level_bonuses = _final_credits(team_id, progress, missions)
         leaderboard.append({
             "player_id": team_id,
             "player_name": participant.get("player_name") or "—",
             "college": participant.get("college") or "—",
             "year_of_study": participant.get("year_of_study") or "—",
-            "score": _team_earned_credits(team_id, progress),
+            "score": score,
+            "level_bonuses": level_bonuses,
         })
 
     leaderboard.sort(key=lambda row: row["score"], reverse=True)

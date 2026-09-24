@@ -48,9 +48,33 @@ def execute_dictionary(val, config=None):
 def execute_output(val, config=None):
     """Formats output value according to format string config."""
     if config and "format" in config and config["format"]:
-        fmt = config["format"]
+        fmt = str(config["format"]).replace("\\n", "\n")
         try:
             return fmt.format(value=val)
         except Exception:
             return f"{fmt}: {val}"
     return val
+
+
+def execute_get(val, config=None):
+    """
+    Reads value(s) out of a dictionary/list input.
+    config['key'] may be one key ("rating_score") or several separated by commas
+    ("notebook,pen,pencil_box"); several keys return a list in that order.
+    """
+    key_text = str((config or {}).get("key", "")).strip()
+    keys = [k.strip() for k in key_text.split(",") if k.strip()]
+    if not keys:
+        raise ValueError("Get node needs a key, e.g. extra_hours.")
+
+    def fetch(k):
+        if isinstance(val, dict):
+            if k not in val:
+                raise ValueError(f"Key '{k}' not found in the input.")
+            return val[k]
+        if isinstance(val, (list, tuple)):
+            return val[int(k)]
+        raise ValueError("Get node needs a dictionary or list input.")
+
+    values = [fetch(k) for k in keys]
+    return values[0] if len(values) == 1 else values

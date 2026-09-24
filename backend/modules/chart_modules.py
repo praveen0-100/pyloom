@@ -41,8 +41,8 @@ def execute_line_chart(val, config=None):
     
     title = config.get("title", "PYLOOM Chart Output") if config else "PYLOOM Chart Output"
     plt.title(title, fontsize=12, fontweight='bold', color='#1e293b')
-    plt.xlabel("X Axis", fontsize=10, color='#64748b')
-    plt.ylabel("Y Axis", fontsize=10, color='#64748b')
+    plt.xlabel((config or {}).get("x_label") or "X Axis", fontsize=10, color='#64748b')
+    plt.ylabel((config or {}).get("y_label") or "Y Axis", fontsize=10, color='#64748b')
     plt.grid(True, linestyle="--", alpha=0.5)
     plt.tight_layout()
     

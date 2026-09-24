@@ -43,3 +43,9 @@ def execute_pattern(val, config=None):
     except Exception:
         n = 5
     return "\n".join("*" * i for i in range(1, n + 1))
+
+
+def execute_reverse(val, config=None):
+    if isinstance(val, list):
+        return list(reversed(val))
+    return str(val)[::-1]

@@ -1,12 +1,308 @@
 [
-  {"id":"mission_01","title":"Mathematics Marks Difference","description":"Two students scored different marks in a mathematics test. Create a workflow that calculates the difference between their marks.","input":{"student_a":85,"student_b":72},"operation":"Difference: Student A - Student B","expected_output":"13 marks","difficulty":"easy","required_modules":["Input","Subtract","Output"],"round":1,"time_limit_minutes":20},
-  {"id":"mission_02","title":"Stationery Shop Total","description":"A student buys a notebook, pen, and pencil from a stationery shop. Calculate the total cost of all the items.","input":{"notebook":40,"pen":15,"pencil":10},"operation":"Add all item prices","expected_output":"65","difficulty":"easy","required_modules":["Input","Sum","Output"],"round":1,"time_limit_minutes":20},
-  {"id":"mission_06","title":"Three-Test Average","description":"A teacher wants to calculate the average marks of a student across three tests.","input":[80,90,70],"operation":"Average","expected_output":"80.0","difficulty":"easy","required_modules":["Input","Average","Output"],"round":1,"time_limit_minutes":20},
-  {"id":"mission_07","title":"School Bag Discount","description":"A shop offers a discount on a school bag. Calculate the discount amount and final price.","input":{"original_price":500,"discount_percent":10},"operation":"Discount = price × rate; final price = price - discount","expected_output":"Discount: 50; Final price: 450","difficulty":"easy","required_modules":["Input","Multiply","Subtract","Output"],"round":1,"time_limit_minutes":20},
-  {"id":"mission_08","title":"Celsius to Fahrenheit","description":"A weather station records temperature in Celsius, but the display requires Fahrenheit.","input":{"celsius":25},"operation":"F = (C × 9/5) + 32","expected_output":"77F","difficulty":"easy","required_modules":["Input","Multiply","Add","Output"],"round":1,"time_limit_minutes":20},
-  {"id":"mission_03","title":"Swap Locker Numbers","description":"Two students are assigned the wrong locker numbers. Create a workflow that swaps Student A and Student B's locker numbers.","input":{"student_a_locker":12,"student_b_locker":25},"operation":"Swap the two values","expected_output":"Student A locker = 25\nStudent B locker = 12","difficulty":"medium","required_modules":["Input","Output"],"round":2,"time_limit_minutes":15},
-  {"id":"mission_04","title":"Leap Year Checker","description":"Check whether a given year is a leap year. A leap year is divisible by 4, except century years must also be divisible by 400.","input":2028,"operation":"Check leap year rules","expected_output":"2028 is a leap year","difficulty":"medium","required_modules":["Input","Output"],"round":2,"time_limit_minutes":15},
-  {"id":"mission_09","title":"School Supplies Budget","description":"Calculate the total bill and check whether the student can afford it.","input":{"budget":200,"notebook":80,"pen":30,"pencil_box":100},"operation":"Total bill and budget comparison","expected_output":"Budget exceeded by 10","difficulty":"medium","required_modules":["Input","Sum","Output"],"round":2,"time_limit_minutes":15},
-  {"id":"mission_05","title":"Continent Position","description":"Display the position of a continent using a simplified coordinate grid. Asia is in the Northern and Eastern hemispheres, in the upper-right region.","input":"Asia","operation":"Look up hemisphere and globe position","expected_output":"Continent: Asia\nHemisphere: Northern and Eastern\nPosition: Upper-right region of the simplified globe","image":"/assets/globe.jpeg","difficulty":"hard","required_modules":["Input","Output"],"round":2,"time_limit_minutes":10},
-  {"id":"mission_10","title":"Traffic Light Instruction","description":"Given a traffic light color, display the appropriate instruction. Red means Stop, Yellow means Wait, and Green means Go.","input":"Green","operation":"String comparison with If/Else","expected_output":"Traffic Light: Green\nInstruction: Go","image":"/assets/traffic.jpeg","difficulty":"hard","required_modules":["Input","Output"],"round":2,"time_limit_minutes":10}
+  {
+    "id": "mission_01",
+    "title": "E-Commerce Final Price",
+    "description": "An e-commerce store offers a flat ₹100 discount on a purchase, followed by an 18% GST applied to the remaining amount. Calculate the final price.",
+    "input": 1500,
+    "operation": "Final price = (cart value - 100) + 18% GST",
+    "expected_output": "1652.0",
+    "difficulty": "easy",
+    "required_modules": [
+      "Input",
+      "Subtract",
+      "Multiply",
+      "Round",
+      "Output"
+    ],
+    "round": 1,
+    "time_limit_minutes": 20,
+    "guide": {
+      "input": "Drag an Input node, open ⚙ and set Input Data to 1500 (the original cart value).",
+      "mapping": [
+        "Input → Subtract: open Subtract ⚙ and set Operand = 100 (flat discount).",
+        "Subtract → Multiply: set Operand = 1.18 (adds 18% GST to the remaining amount).",
+        "Multiply → Round: no settings needed (keeps 2 decimals).",
+        "Round → Output."
+      ],
+      "output": "Leave the Output format empty. Run Flow must show 1652.0."
+    }
+  },
+  {
+    "id": "mission_02",
+    "title": "Palindrome Check",
+    "description": "Given a string, check if it reads the same backward as forward (a palindrome).",
+    "input": "radar",
+    "operation": "Check if the string equals its reverse",
+    "expected_output": "True",
+    "difficulty": "easy",
+    "required_modules": [
+      "Input",
+      "Reverse",
+      "Compare",
+      "Output"
+    ],
+    "round": 1,
+    "time_limit_minutes": 20,
+    "guide": {
+      "input": "Drag an Input node and set Input Data to radar.",
+      "mapping": [
+        "Input → Reverse (reverses the text).",
+        "Input → Compare (carries the original word).",
+        "Reverse → Compare (carries the reversed word). Open Compare ⚙ and set Operator = ==.",
+        "Compare → Output."
+      ],
+      "output": "Leave the Output format empty. Run Flow must show True (a palindrome)."
+    }
+  },
+  {
+    "id": "mission_06",
+    "title": "Restaurant Bill Split",
+    "description": "A group receives a restaurant bill. Add a 10% tip to the total amount, then divide it equally among 4 friends to find each person's share.",
+    "input": 2000,
+    "operation": "Total = bill + 10% tip; share = total / 4",
+    "expected_output": "550.0",
+    "difficulty": "easy",
+    "required_modules": [
+      "Input",
+      "Multiply",
+      "Divide",
+      "Round",
+      "Output"
+    ],
+    "round": 1,
+    "time_limit_minutes": 20,
+    "guide": {
+      "input": "Drag an Input node and set Input Data to 2000 (total bill).",
+      "mapping": [
+        "Input → Multiply: set Operand = 1.1 (bill + 10% tip).",
+        "Multiply → Divide: set Operand = 4 (four friends).",
+        "Divide → Round (2 decimals).",
+        "Round → Output."
+      ],
+      "output": "Leave the Output format empty. Run Flow must show 550.0."
+    }
+  },
+  {
+    "id": "mission_07",
+    "title": "Hashtag Generator",
+    "description": "Convert a topic phrase into a valid single-word social media hashtag by removing all spaces, converting the text to uppercase, and adding # at the beginning.",
+    "input": " python coding ",
+    "operation": "Remove spaces, uppercase, prefix with #",
+    "expected_output": "#PYTHONCODING",
+    "difficulty": "easy",
+    "required_modules": [
+      "Input",
+      "Replace",
+      "Uppercase",
+      "Output"
+    ],
+    "round": 1,
+    "time_limit_minutes": 20,
+    "guide": {
+      "input": "Drag an Input node and set Input Data to \" python coding \" (keep the spaces at both ends; quotes are optional).",
+      "mapping": [
+        "Input → Replace: open Replace ⚙, Find = one space character, Replace With = empty (delete the text in the box).",
+        "Replace → Uppercase.",
+        "Uppercase → Output."
+      ],
+      "output": "Set the Output format to #{value}. Run Flow must show #PYTHONCODING."
+    }
+  },
+  {
+    "id": "mission_08",
+    "title": "Server Temperature Alert",
+    "description": "A server monitoring tool tracks system temperature. Convert the reading from Fahrenheit to Celsius, then check if the temperature exceeds the safe threshold of 40°C. Formula: C = (F - 32) * 5 / 9.",
+    "input": 113,
+    "operation": "C = (F - 32) * 5 / 9; check C > 40",
+    "expected_output": "True",
+    "difficulty": "easy",
+    "required_modules": [
+      "Input",
+      "Subtract",
+      "Multiply",
+      "Divide",
+      "Compare",
+      "Output"
+    ],
+    "round": 1,
+    "time_limit_minutes": 20,
+    "guide": {
+      "input": "Drag an Input node and set Input Data to 113 (temperature in °F).",
+      "mapping": [
+        "Input → Subtract: Operand = 32.",
+        "Subtract → Multiply: Operand = 5.",
+        "Multiply → Divide: Operand = 9 (the value is now the Celsius reading, 45).",
+        "Divide → Compare: set Operator = > and Value = 40 (safe threshold).",
+        "Compare → Output."
+      ],
+      "output": "Leave the Output format empty. Run Flow must show True (45°C > 40°C)."
+    }
+  },
+  {
+    "id": "mission_03",
+    "title": "Swap Locker Numbers",
+    "description": "Two students are assigned the wrong locker numbers. Create a workflow that swaps Student A and Student B's locker numbers.",
+    "input": {
+      "student_a_locker": 12,
+      "student_b_locker": 25
+    },
+    "operation": "Swap the two values",
+    "expected_output": "Student A locker = 25\nStudent B locker = 12",
+    "difficulty": "medium",
+    "required_modules": [
+      "Input",
+      "Output"
+    ],
+    "round": 2,
+    "time_limit_minutes": 15,
+    "guide": {
+      "input": "Drag an Input node and set Input Data to the JSON {\"student_a_locker\": 12, \"student_b_locker\": 25}.",
+      "mapping": [
+        "Input → Output (one connection). The swap happens in the Output format, where A takes B's value and B takes A's."
+      ],
+      "output": "Set the Output format to: Student A locker = {value[student_b_locker]}\\nStudent B locker = {value[student_a_locker]}  (type \\n where the line break goes). Run Flow must show the two swapped lines."
+    }
+  },
+  {
+    "id": "mission_04",
+    "title": "Employee Performance & Bonus Evaluator",
+    "description": "An HR evaluation tool computes employee monthly bonuses based on score ratings and extra project hours. Base Bonus = Extra Hours * $25. If Rating >= 4.5, double the base bonus (* 2.0); otherwise keep it unchanged (* 1.0). Add a fixed $100 attendance allowance to the final evaluated bonus.",
+    "input": {
+      "employee_name": "Sarah",
+      "rating_score": 4.8,
+      "extra_hours": 10
+    },
+    "operation": "Bonus = (Extra Hours * 25) * multiplier (2.0 if Rating >= 4.5 else 1.0) + 100",
+    "expected_output": "600.0",
+    "difficulty": "medium",
+    "required_modules": [
+      "Input",
+      "Get",
+      "Multiply",
+      "IfElse",
+      "Add",
+      "Output"
+    ],
+    "round": 2,
+    "time_limit_minutes": 15,
+    "guide": {
+      "input": "Drag an Input node and set Input Data to {\"employee_name\": \"Sarah\", \"rating_score\": 4.8, \"extra_hours\": 10}.",
+      "mapping": [
+        "Branch 1 (base bonus): Input → Get (Key = extra_hours) → Multiply (Operand = 25).",
+        "Branch 2 (rating multiplier): Input → Get (Key = rating_score) → IfElse (Operator = >=, Value = 4.5, Then = 2, Otherwise = 1).",
+        "Merge: connect Multiply (branch 1) → a second Multiply node, then IfElse → the same second Multiply (it multiplies base bonus × multiplier; leave its Operand alone).",
+        "Second Multiply → Add: Operand = 100 (attendance allowance).",
+        "Add → Output."
+      ],
+      "output": "Leave the Output format empty. Run Flow must show 600.0."
+    }
+  },
+  {
+    "id": "mission_09",
+    "title": "School Supplies Budget",
+    "description": "Calculate the total bill and check whether the student can afford it.",
+    "input": {
+      "budget": 200,
+      "notebook": 80,
+      "pen": 30,
+      "pencil_box": 100
+    },
+    "operation": "Total bill and budget comparison",
+    "expected_output": "Budget exceeded by 10",
+    "difficulty": "medium",
+    "required_modules": [
+      "Input",
+      "Get",
+      "Sum",
+      "Subtract",
+      "Output"
+    ],
+    "round": 2,
+    "time_limit_minutes": 15,
+    "guide": {
+      "input": "Drag an Input node and set Input Data to {\"budget\": 200, \"notebook\": 80, \"pen\": 30, \"pencil_box\": 100}.",
+      "mapping": [
+        "Input → Get #1: Key = notebook,pen,pencil_box (comma-separated, no spaces) → Sum (total bill = 210).",
+        "Input → Get #2: Key = budget.",
+        "Subtract inputs, in this order: connect Sum → Subtract FIRST, then Get #2 (budget) → Subtract SECOND (210 − 200 = 10).",
+        "Subtract → Output."
+      ],
+      "output": "Set the Output format to Budget exceeded by {value}. Run Flow must show Budget exceeded by 10."
+    }
+  },
+  {
+    "id": "mission_05",
+    "title": "World Landmark Locator",
+    "description": "A geography exploration tool identifies a famous world landmark. Given the landmark's name, look up its country and continent from a predefined dataset, determine its hemisphere position (Eastern if longitude >= 0, Northern if latitude >= 0), and render a Location Photo Card showing the landmark's image pinned on a simplified world map.",
+    "input": "Eiffel Tower",
+    "operation": "Lookup country/continent/coordinates; classify hemisphere; render map pin and photo card",
+    "expected_output": "Country: France | Continent: Europe | Hemisphere: Northern & Eastern Hemisphere",
+    "image": "/assets/landmark.png",
+    "difficulty": "hard",
+    "required_modules": [
+      "Input",
+      "Lookup",
+      "Hemisphere",
+      "Output"
+    ],
+    "round": 2,
+    "time_limit_minutes": 10,
+    "guide": {
+      "input": "Drag an Input node and set Input Data to Eiffel Tower (the landmark name).",
+      "mapping": [
+        "Input → Lookup (finds Country, Continent and coordinates in the predefined table).",
+        "Lookup → Hemisphere (longitude ≥ 0 = Eastern, latitude ≥ 0 = Northern; combines both).",
+        "Hemisphere → Output."
+      ],
+      "output": "Set the Output format to Country: {value[country]} | Continent: {value[continent]} | Hemisphere: {value[hemisphere]}. Run Flow must show Country: France | Continent: Europe | Hemisphere: Northern & Eastern Hemisphere. The reference picture shows the map pin and photo card the tool would draw."
+    }
+  },
+  {
+    "id": "mission_10",
+    "title": "Weekly Attendance Chart",
+    "description": "A class teacher wants to visualize the attendance of students over five days. Create a line chart using the attendance data, with days on the X-axis, number of students present on the Y-axis, and the chart title \"Weekly Attendance\".",
+    "input": {
+      "x": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "y": [
+        35,
+        38,
+        36,
+        40,
+        37
+      ]
+    },
+    "operation": "Plot attendance per day as a line chart",
+    "expected_output": "Line chart titled 'Weekly Attendance' with days on the X-axis and students present on the Y-axis",
+    "image": "/assets/graph.jpeg",
+    "difficulty": "hard",
+    "required_modules": [
+      "Input",
+      "LineChart",
+      "Output"
+    ],
+    "round": 2,
+    "time_limit_minutes": 10,
+    "guide": {
+      "input": "Drag an Input node and set Input Data to {\"x\": [\"Monday\",\"Tuesday\",\"Wednesday\",\"Thursday\",\"Friday\"], \"y\": [35,38,36,40,37]} (x = days, y = students present).",
+      "mapping": [
+        "Input → LineChart: open LineChart ⚙ and set Title = Weekly Attendance, X Axis Label = Day, Y Axis Label = Students Present.",
+        "LineChart → Output."
+      ],
+      "output": "Leave the Output format empty. Run Flow must draw the chart titled Weekly Attendance (days on X, students present on Y)."
+    },
+    "expected_check": "chart",
+    "config_checks": [
+      {
+        "type": "LineChart",
+        "key": "title",
+        "equals": "Weekly Attendance"
+      }
+    ]
+  }
 ]

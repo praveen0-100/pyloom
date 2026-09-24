@@ -1,1 +1,427 @@
-[]
+[
+  {
+    "team_id": "PLAYER_02",
+    "mission_id": "mission_01",
+    "mission_title": "E-Commerce Final Price",
+    "round": 1,
+    "credits": 0,
+    "mission_credits": 4,
+    "status": "accepted",
+    "flow": {
+      "nodes": [
+        {
+          "id": "node_cb25df7c",
+          "type": "Input",
+          "config": {
+            "data": 1500
+          },
+          "x": 136,
+          "y": 102.00390625
+        },
+        {
+          "id": "node_3b02fb35",
+          "type": "Subtract",
+          "config": {
+            "operand": 100
+          },
+          "x": 16,
+          "y": 300.00390625
+        },
+        {
+          "id": "node_37d6cd41",
+          "type": "Multiply",
+          "config": {
+            "operand": 1.18
+          },
+          "x": 94,
+          "y": 501.00390625
+        },
+        {
+          "id": "node_e87d3a13",
+          "type": "Round",
+          "config": {
+            "decimals": 2
+          },
+          "x": 199,
+          "y": 706.00390625
+        },
+        {
+          "id": "node_9186ff16",
+          "type": "Output",
+          "config": {
+            "format": "1652.0"
+          },
+          "x": 276,
+          "y": 915.00390625
+        }
+      ],
+      "edges": [
+        {
+          "from": "node_cb25df7c",
+          "to": "node_3b02fb35"
+        },
+        {
+          "from": "node_3b02fb35",
+          "to": "node_37d6cd41"
+        },
+        {
+          "from": "node_37d6cd41",
+          "to": "node_e87d3a13"
+        },
+        {
+          "from": "node_e87d3a13",
+          "to": "node_9186ff16"
+        }
+      ]
+    },
+    "submitted_at": "24-09-2026"
+  },
+  {
+    "team_id": "PLAYER_02",
+    "mission_id": "mission_02",
+    "mission_title": "Palindrome Check",
+    "round": 1,
+    "credits": 0,
+    "mission_credits": 4,
+    "status": "accepted",
+    "flow": {
+      "nodes": [
+        {
+          "id": "node_ce3b5ceb",
+          "type": "Input",
+          "config": {
+            "data": "radar"
+          },
+          "x": 20,
+          "y": 98.00390625
+        },
+        {
+          "id": "node_dadca1f0",
+          "type": "Reverse",
+          "config": {},
+          "x": 25.45454545454544,
+          "y": 325.54936079545456
+        },
+        {
+          "id": "node_4c7e2d9d",
+          "type": "Compare",
+          "config": {
+            "op": "==",
+            "value": "\"radar\""
+          },
+          "x": 0,
+          "y": 538.5493607954545
+        },
+        {
+          "id": "node_7bd6abab",
+          "type": "Output",
+          "config": {
+            "format": "True"
+          },
+          "x": 56.99999999999977,
+          "y": 757.0039062500003
+        }
+      ],
+      "edges": [
+        {
+          "from": "node_ce3b5ceb",
+          "to": "node_dadca1f0"
+        },
+        {
+          "from": "node_dadca1f0",
+          "to": "node_4c7e2d9d"
+        },
+        {
+          "from": "node_4c7e2d9d",
+          "to": "node_7bd6abab"
+        }
+      ]
+    },
+    "submitted_at": "23-09-2026"
+  },
+  {
+    "team_id": "PLAYER_02",
+    "mission_id": "mission_10",
+    "mission_title": "Weekly Attendance Chart",
+    "round": 2,
+    "credits": 15,
+    "mission_credits": 25,
+    "status": "accepted",
+    "flow": {
+      "nodes": [
+        {
+          "id": "node_085a7892",
+          "type": "Input",
+          "config": {
+            "data": {
+              "x": [
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday"
+              ],
+              "y": [
+                35,
+                38,
+                36,
+                40,
+                37
+              ]
+            }
+          },
+          "x": 20,
+          "y": 308.00390625
+        },
+        {
+          "id": "node_013044b7",
+          "type": "LineChart",
+          "config": {
+            "title": "Weekly Attendance",
+            "x_label": "Day",
+            "y_label": "Students Present"
+          },
+          "x": 0,
+          "y": 501.3372395833333
+        },
+        {
+          "id": "node_cb4ec5b1",
+          "type": "Output",
+          "config": {
+            "format": "Line chart image (Weekly Attendance)"
+          },
+          "x": 9.888888888888744,
+          "y": 651.7816840277778
+        }
+      ],
+      "edges": [
+        {
+          "from": "node_085a7892",
+          "to": "node_013044b7"
+        },
+        {
+          "from": "node_013044b7",
+          "to": "node_cb4ec5b1"
+        }
+      ]
+    },
+    "submitted_at": "24-09-2026"
+  },
+  {
+    "team_id": "PLAYER_01",
+    "mission_id": "mission_01",
+    "mission_title": "E-Commerce Final Price",
+    "round": 1,
+    "credits": 0,
+    "mission_credits": 4,
+    "status": "accepted",
+    "flow": {
+      "nodes": [
+        {
+          "id": "node_8a01f537",
+          "type": "Input",
+          "config": {
+            "data": 1500
+          },
+          "x": 235.70164607121404,
+          "y": 175.1603769155649
+        },
+        {
+          "id": "node_a5aae447",
+          "type": "Subtract",
+          "config": {
+            "operand": 100
+          },
+          "x": 424.47087684044476,
+          "y": 339.2372999924881
+        },
+        {
+          "id": "node_1725a394",
+          "type": "Multiply",
+          "config": {
+            "operand": 1.18
+          },
+          "x": 655.0093383789062,
+          "y": 529.0065307617189
+        },
+        {
+          "id": "node_2978c120",
+          "type": "Round",
+          "config": {
+            "decimals": 2
+          },
+          "x": 838.0093383789062,
+          "y": 698.0065307617188
+        },
+        {
+          "id": "node_bd46b55a",
+          "type": "Output",
+          "config": {
+            "format": "1652.0"
+          },
+          "x": 1127.0093383789065,
+          "y": 842.0065307617188
+        }
+      ],
+      "edges": [
+        {
+          "from": "node_8a01f537",
+          "to": "node_a5aae447"
+        },
+        {
+          "from": "node_a5aae447",
+          "to": "node_1725a394"
+        },
+        {
+          "from": "node_1725a394",
+          "to": "node_2978c120"
+        },
+        {
+          "from": "node_2978c120",
+          "to": "node_bd46b55a"
+        }
+      ]
+    },
+    "submitted_at": "24-09-2026"
+  },
+  {
+    "team_id": "PLAYER_01",
+    "mission_id": "mission_02",
+    "mission_title": "Palindrome Check",
+    "round": 1,
+    "credits": 3,
+    "mission_credits": 4,
+    "status": "accepted",
+    "flow": {
+      "nodes": [
+        {
+          "id": "node_3ec55aa2",
+          "type": "Input",
+          "config": {
+            "data": "radar"
+          },
+          "x": 661.0093383789062,
+          "y": 562.0065307617188
+        },
+        {
+          "id": "node_b52d46f2",
+          "type": "Reverse",
+          "config": {},
+          "x": 805.0093383789064,
+          "y": 757.0065307617188
+        },
+        {
+          "id": "node_698ee39f",
+          "type": "Compare",
+          "config": {
+            "op": "==",
+            "value": "radar"
+          },
+          "x": 962.0093383789062,
+          "y": 957.0065307617188
+        },
+        {
+          "id": "node_2ae42a8e",
+          "type": "Output",
+          "config": {
+            "format": "True"
+          },
+          "x": 1233.0093383789062,
+          "y": 1197.0065307617188
+        }
+      ],
+      "edges": [
+        {
+          "from": "node_3ec55aa2",
+          "to": "node_b52d46f2"
+        },
+        {
+          "from": "node_b52d46f2",
+          "to": "node_698ee39f"
+        },
+        {
+          "from": "node_698ee39f",
+          "to": "node_2ae42a8e"
+        }
+      ]
+    },
+    "submitted_at": "24-09-2026"
+  },
+  {
+    "team_id": "PLAYER_01",
+    "mission_id": "mission_08",
+    "mission_title": "Server Temperature Alert",
+    "round": 1,
+    "credits": 0,
+    "mission_credits": 4,
+    "status": "rejected",
+    "flow": {
+      "nodes": [],
+      "edges": []
+    },
+    "submitted_at": "24-09-2026"
+  },
+  {
+    "team_id": "T",
+    "mission_id": "mission_01",
+    "mission_title": "E-Commerce Final Price",
+    "round": 1,
+    "credits": 4,
+    "mission_credits": 4,
+    "status": "accepted",
+    "flow": {
+      "edges": [
+        {
+          "from": "i",
+          "to": "s"
+        },
+        {
+          "from": "s",
+          "to": "m"
+        },
+        {
+          "from": "m",
+          "to": "r"
+        },
+        {
+          "from": "r",
+          "to": "o"
+        }
+      ],
+      "nodes": [
+        {
+          "config": {
+            "data": 1500
+          },
+          "id": "i",
+          "type": "Input"
+        },
+        {
+          "config": {
+            "operand": 100
+          },
+          "id": "s",
+          "type": "Subtract"
+        },
+        {
+          "config": {
+            "operand": 1.18
+          },
+          "id": "m",
+          "type": "Multiply"
+        },
+        {
+          "config": {},
+          "id": "r",
+          "type": "Round"
+        },
+        {
+          "config": {},
+          "id": "o",
+          "type": "Output"
+        }
+      ]
+    },
+    "submitted_at": "24-09-2026"
+  }
+]

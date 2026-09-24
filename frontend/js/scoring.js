@@ -1,10 +1,11 @@
 /**
  * PYLOOM Client Scoring Renderer
  */
-function updateScoringUI(credits, breakdown) {
+function updateScoringUI(credits, breakdown, questionCredits) {
+  const maxCredits = questionCredits || 4;
   const creditsEl = document.getElementById("credits-display");
   if (creditsEl) {
-    creditsEl.textContent = `${credits} / 40`;
+    creditsEl.textContent = `${credits} / ${maxCredits}`;
   }
 
   const breakdownEl = document.getElementById("scoring-breakdown");
@@ -20,8 +21,9 @@ function updateScoringUI(credits, breakdown) {
     ["sample_output", "Output compare with sample output"],
     ["output_check", "Output check"]
   ];
+  const fullShare = maxCredits / 4;
   breakdownEl.innerHTML = `<div class="scoring-breakdown">${checks.map(([key, label]) => {
-    const score = breakdown[key] || 5;
-    return `<div class="scoring-row ${score === 10 ? 'is-pass' : 'is-partial'}"><span>${label}</span><strong>+${score}</strong></div>`;
+    const score = breakdown[key] ?? fullShare / 2;
+    return `<div class="scoring-row ${score >= fullShare ? 'is-pass' : 'is-partial'}"><span>${label}</span><strong>+${score}</strong></div>`;
   }).join('')}</div>`;
 }

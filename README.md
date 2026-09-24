@@ -24,6 +24,8 @@ pip install -r backend/requirements.txt
 script activation :
     .venv\Scripts\activate
 
+set "PATH=%PATH%;C:\Users\PRAVEEN PRABAKARN\.local\bin"
+
 ### 2. Run Python Server
 ```powershell
 py backend/app.py

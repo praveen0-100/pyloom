@@ -695,30 +695,23 @@ body {
 }
 
 .question-chip.is-complete {
-  border-color: rgba(16, 185, 129, 0.35);
-  background: rgba(16, 185, 129, 0.08);
-  color: var(--pass-fg);
+  border-color: rgba(16, 185, 129, 0.6);
+  background: rgba(16, 185, 129, 0.16);
+  color: var(--pass-fg, #047857);
 }
 
 .question-chip.is-tried {
-  border-color: rgba(217, 119, 6, 0.4);
-  background: rgba(217, 119, 6, 0.1);
-  color: var(--accent-amber);
+  border-color: rgba(234, 120, 8, 0.65);
+  background: rgba(249, 115, 22, 0.16);
+  color: #c2570c;
 }
 
 .question-chip.is-unattempted {
-  border-color: rgba(225, 29, 72, 0.35);
-  background: rgba(225, 29, 72, 0.07);
+  border-color: rgba(225, 29, 72, 0.6);
+  background: rgba(225, 29, 72, 0.14);
   color: var(--accent-rose);
 }
 
-.question-chip.is-red,
-.question-chip.is-red:hover,
-.question-chip.is-red.is-current {
-  border-color: rgba(225, 29, 72, 0.35);
-  background: rgba(225, 29, 72, 0.07);
-  color: var(--accent-rose);
-}
 
 .question-navigation {
   display: flex;
@@ -1613,20 +1606,194 @@ body.admin-page {
   grid-template-columns: repeat(4, 1fr);
 }
 
-@media (max-width: 720px) {
-  .stats-row {
-    grid-template-columns: 1fr;
+/* ===========================================================================
+   Responsive breakpoints — desktop, laptop, tablet, mobile
+   Base rules above target large desktop/laptop screens (≥1200px). Everything
+   below progressively adapts the same markup for smaller viewports instead
+   of shipping a separate mobile layout.
+   =========================================================================== */
+
+/* ——— Desktop (≥1440px): give the workspace a little more breathing room ——— */
+@media (min-width: 1440px) {
+  .sidebar-left {
+    width: 300px;
   }
+  .sidebar-right {
+    width: 360px;
+  }
+  .admin-container {
+    max-width: 1280px;
+  }
+}
+
+/* ——— Laptop (1024px–1439px): the default sizing already fits; only trim
+   the panels slightly so the canvas keeps most of the width ——— */
+@media (max-width: 1439px) and (min-width: 1025px) {
+  .sidebar-left {
+    width: 260px;
+  }
+  .sidebar-right {
+    width: 300px;
+  }
+}
+
+/* ——— Tablet (768px–1024px, landscape and portrait) ——— */
+@media (max-width: 1024px) {
   .header-nav {
+    display: none;
+  }
+  .header-center {
+    max-width: 320px;
+  }
+  .mission-select-wrapper label {
     display: none;
   }
   .sidebar-left,
   .sidebar-right {
-    width: 240px;
+    width: 220px;
+  }
+  .module-desc {
+    display: none;
+  }
+  .stats-row {
+    grid-template-columns: repeat(2, 1fr);
   }
   .admin-section-grid,
+  .level-grid,
+  .question-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--header-height);
+    padding: 8px 14px;
+    gap: 8px;
+  }
+  .header-center {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+    justify-content: flex-start;
+  }
+  .header-right {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .stat-pill {
+    padding: 5px 9px;
+    font-size: 0.75rem;
+  }
+}
+
+/* ——— Mobile (≤767px): stack the three-column workspace vertically so
+   every panel is reachable by scrolling instead of being clipped ——— */
+@media (max-width: 767px) {
+  body {
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
+  }
+  .app-container {
+    flex-direction: column;
+    overflow: auto;
+    height: auto;
+  }
+  .sidebar-left,
+  .sidebar-right {
+    width: 100%;
+    max-height: 46vh;
+  }
+  .sidebar-left {
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .sidebar-right {
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+  }
+  .canvas-wrapper {
+    min-height: 50vh;
+    flex-shrink: 0;
+  }
+  .module-desc {
+    display: block;
+  }
+  .canvas-toolbar {
+    flex-wrap: wrap;
+  }
+  .app-footer {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 10px 14px;
+    gap: 8px;
+  }
+  .action-btns {
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .modal-content {
+    width: 92vw;
+    max-width: 92vw;
+    max-height: 88vh;
+  }
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
+  .admin-section-grid,
+  .level-grid,
   .question-grid {
     grid-template-columns: 1fr;
+  }
+  .admin-container {
+    padding: 16px;
+  }
+}
+
+/* ——— Small phones (≤480px) ——— */
+@media (max-width: 480px) {
+  .brand-tag {
+    display: none;
+  }
+  .header-right .stat-pill .timer-label,
+  .header-right .player-level-pill span:not(.player-level-icon) {
+    display: none;
+  }
+  .sidebar-left,
+  .sidebar-right {
+    max-height: 42vh;
+  }
+  .panel-header {
+    padding: 10px 12px;
+    font-size: 0.75rem;
+  }
+  .module-card {
+    padding: 8px;
+  }
+  .canvas-wrapper {
+    min-height: 40vh;
+  }
+  .app-footer .btn {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+  .trial-counter {
+    width: 100%;
+    text-align: center;
+  }
+  .admin-timer-actions,
+  .participant-add {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .admin-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
   }
 }
 
@@ -1801,3 +1968,21 @@ body.admin-page {
   border-color: rgba(225, 29, 72, 0.28);
   color: var(--accent-rose);
 }
+
+
+/* Step-by-step solution guide inside the hint modal */
+.hint-guide h4 { margin: 14px 0 4px; font-size: 0.85rem; }
+.hint-guide p, .hint-guide li { font-size: 0.82rem; line-height: 1.5; margin: 2px 0; }
+.hint-guide ol { margin: 4px 0 0 18px; padding: 0; }
+.hint-guide { max-height: 50vh; overflow-y: auto; }
+
+
+/* Question input placeholder in the left sidebar */
+.question-input-card { margin: 10px 12px 4px; padding: 10px 12px; border: 1px dashed var(--border, #94a3b8); border-radius: 8px; }
+.question-input-title { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.75; }
+.question-input-value { margin: 6px 0; font-family: Consolas, monospace; font-size: 0.82rem; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow-y: auto; }
+.question-input-hint { font-size: 0.72rem; opacity: 0.7; line-height: 1.4; }
+
+/* Current question keeps its status colour and gets a ring instead */
+.question-chip.is-current { box-shadow: 0 0 0 2px currentColor; }
+.question-chip.is-complete:hover, .question-chip.is-tried:hover, .question-chip.is-unattempted:hover { filter: brightness(0.96); }

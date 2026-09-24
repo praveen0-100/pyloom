@@ -134,7 +134,7 @@ function openConfigModal(node) {
     modalBody.innerHTML = `
       <div class="form-group">
         <label>Input Data (JSON format or comma-separated list)</label>
-        <textarea id="cfg-input-data" class="form-control" rows="4">${JSON.stringify(node.config.data ?? [85, 72, 91, 68, 79])}</textarea>
+        <textarea id="cfg-input-data" class="form-control" rows="4" placeholder="Enter the question input here">${node.config.data === undefined ? "" : JSON.stringify(node.config.data)}</textarea>
       </div>
     `;
   } else if (node.type === "Output") {
@@ -155,11 +155,70 @@ function openConfigModal(node) {
     modalBody.innerHTML = `
       <div class="form-group">
         <label>Find Character/Sub-string</label>
-        <input type="text" id="cfg-find" class="form-control" value="${node.config.find || ' '}">
+        <input type="text" id="cfg-find" class="form-control" value="${node.config.find ?? ' '}">
       </div>
       <div class="form-group">
-        <label>Replace With</label>
-        <input type="text" id="cfg-replace" class="form-control" value="${node.config.replace_with || '-'}">
+        <label>Replace With (leave empty to delete)</label>
+        <input type="text" id="cfg-replace" class="form-control" value="${node.config.replace_with ?? '-'}">
+      </div>
+    `;
+  } else if (node.type === "Get") {
+    modalBody.innerHTML = `
+      <div class="form-group">
+        <label>Key (several keys separated by commas, no spaces)</label>
+        <input type="text" id="cfg-key" class="form-control" value="${node.config.key ?? ''}" placeholder="e.g. extra_hours">
+      </div>
+    `;
+  } else if (node.type === "Compare") {
+    modalBody.innerHTML = `
+      <div class="form-group">
+        <label>Operator</label>
+        <select id="cfg-op" class="form-control">${operatorOptions(node.config.op ?? "==")}</select>
+      </div>
+      <div class="form-group">
+        <label>Value (only used when a single input is connected)</label>
+        <input type="text" id="cfg-value" class="form-control" value="${node.config.value ?? ''}" placeholder="e.g. 40">
+      </div>
+    `;
+  } else if (node.type === "IfElse") {
+    modalBody.innerHTML = `
+      <div class="form-group">
+        <label>Condition: input</label>
+        <select id="cfg-op" class="form-control">${operatorOptions(node.config.op ?? ">=")}</select>
+      </div>
+      <div class="form-group">
+        <label>Value to compare with</label>
+        <input type="text" id="cfg-value" class="form-control" value="${node.config.value ?? ''}" placeholder="e.g. 4.5">
+      </div>
+      <div class="form-group">
+        <label>Then (output when the condition is true)</label>
+        <input type="text" id="cfg-then" class="form-control" value="${node.config.then ?? ''}" placeholder="e.g. 2">
+      </div>
+      <div class="form-group">
+        <label>Otherwise (output when false)</label>
+        <input type="text" id="cfg-otherwise" class="form-control" value="${node.config.otherwise ?? ''}" placeholder="e.g. 1">
+      </div>
+    `;
+  } else if (node.type === "Round") {
+    modalBody.innerHTML = `
+      <div class="form-group">
+        <label>Decimal places</label>
+        <input type="number" id="cfg-decimals" class="form-control" min="0" value="${node.config.decimals ?? 2}">
+      </div>
+    `;
+  } else if (node.type === "LineChart") {
+    modalBody.innerHTML = `
+      <div class="form-group">
+        <label>Chart Title</label>
+        <input type="text" id="cfg-title" class="form-control" value="${node.config.title ?? ''}" placeholder="e.g. Weekly Attendance">
+      </div>
+      <div class="form-group">
+        <label>X Axis Label</label>
+        <input type="text" id="cfg-xlabel" class="form-control" value="${node.config.x_label ?? ''}">
+      </div>
+      <div class="form-group">
+        <label>Y Axis Label</label>
+        <input type="text" id="cfg-ylabel" class="form-control" value="${node.config.y_label ?? ''}">
       </div>
     `;
   } else if (node.type === "Filter") {
@@ -193,6 +252,22 @@ function openConfigModal(node) {
     } else if (node.type === "Replace") {
       node.config.find = document.getElementById("cfg-find").value;
       node.config.replace_with = document.getElementById("cfg-replace").value;
+    } else if (node.type === "Get") {
+      node.config.key = document.getElementById("cfg-key").value.trim();
+    } else if (node.type === "Compare") {
+      node.config.op = document.getElementById("cfg-op").value;
+      node.config.value = document.getElementById("cfg-value").value.trim();
+    } else if (node.type === "IfElse") {
+      node.config.op = document.getElementById("cfg-op").value;
+      node.config.value = document.getElementById("cfg-value").value.trim();
+      node.config.then = document.getElementById("cfg-then").value.trim();
+      node.config.otherwise = document.getElementById("cfg-otherwise").value.trim();
+    } else if (node.type === "Round") {
+      node.config.decimals = parseInt(document.getElementById("cfg-decimals").value, 10) || 0;
+    } else if (node.type === "LineChart") {
+      node.config.title = document.getElementById("cfg-title").value.trim();
+      node.config.x_label = document.getElementById("cfg-xlabel").value.trim();
+      node.config.y_label = document.getElementById("cfg-ylabel").value.trim();
     } else if (node.type === "Filter") {
       node.config.min = parseFloat(document.getElementById("cfg-min").value);
       node.config.max = parseFloat(document.getElementById("cfg-max").value);
@@ -207,7 +282,22 @@ function openConfigModal(node) {
   overlay.classList.add("active");
 }
 
+function operatorOptions(selected) {
+  return ["==", "!=", ">", ">=", "<", "<="]
+    .map(op => `<option value="${op}"${op === selected ? " selected" : ""}>${op}</option>`)
+    .join("");
+}
+
 function getConfigSummaryText(node) {
+  if (node.type === "Get" && node.config.key) return `Key: ${node.config.key}`;
+  if (node.type === "Compare" && node.config.op) return `${node.config.op} ${node.config.value ?? ""}`.trim();
+  if (node.type === "IfElse" && node.config.op) {
+    return `if ${node.config.op} ${node.config.value ?? ""} → ${node.config.then ?? ""} else ${node.config.otherwise ?? ""}`;
+  }
+  if (node.type === "LineChart" && node.config.title) return `Title: ${node.config.title}`;
+  if (["Add", "Subtract", "Multiply", "Divide"].includes(node.type) && node.config.operand !== undefined) {
+    return `Operand: ${node.config.operand}`;
+  }
   if (node.type === "Input" && node.config.data) {
     return `Data: ${JSON.stringify(node.config.data).slice(0, 18)}...`;
   }
@@ -215,7 +305,7 @@ function getConfigSummaryText(node) {
     return `Format: "${node.config.format}"`;
   }
   if (node.type === "Replace") {
-    return `'${node.config.find || ' '}' → '${node.config.replace_with || '-'}'`;
+    return `'${node.config.find ?? ' '}' → '${node.config.replace_with ?? '-'}'`;
   }
   if (node.type === "Filter") {
     return `Range: [${node.config.min ?? 0}, ${node.config.max ?? 100}]`;
@@ -228,6 +318,7 @@ function getModuleCategory(type) {
     Input: { class: "cat-data", icon: "IN" },
     List: { class: "cat-data", icon: "LS" },
     Dictionary: { class: "cat-data", icon: "DC" },
+    Get: { class: "cat-data", icon: "GT" },
     Output: { class: "cat-data", icon: "OUT" },
 
     Sum: { class: "cat-math", icon: "∑" },
@@ -239,6 +330,12 @@ function getModuleCategory(type) {
     Subtract: { class: "cat-math", icon: "-" },
     Multiply: { class: "cat-math", icon: "×" },
     Divide: { class: "cat-math", icon: "÷" },
+    Round: { class: "cat-math", icon: "RD" },
+    Reverse: { class: "cat-string", icon: "RV" },
+    Compare: { class: "cat-logic", icon: "?" },
+    IfElse: { class: "cat-logic", icon: "IF" },
+    Lookup: { class: "cat-logic", icon: "LK" },
+    Hemisphere: { class: "cat-logic", icon: "HM" },
 
     Uppercase: { class: "cat-string", icon: "AA" },
     Lowercase: { class: "cat-string", icon: "aa" },
@@ -263,6 +360,15 @@ function getModuleDesc(type) {
     Length: "Calculates total count / length",
     Average: "Calculates arithmetic mean",
     Divide: "Divides numerator by denominator",
+    Subtract: "Subtracts operand or 2nd input",
+    Multiply: "Multiplies by operand or 2nd input",
+    Round: "Rounds a number to N decimals",
+    Get: "Reads key(s) from a dictionary",
+    Reverse: "Reverses text",
+    Compare: "Returns True/False for a comparison",
+    IfElse: "Picks a value from a condition",
+    Lookup: "Finds landmark country & coordinates",
+    Hemisphere: "Classifies hemisphere from coordinates",
     Uppercase: "Converts string to uppercase",
     Replace: "Replaces search string matches",
     Filter: "Filters list items within range",

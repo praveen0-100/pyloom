@@ -305,7 +305,7 @@
             <td class="cell-team">${s.team_id}</td>
             <td>${s.mission_title}</td>
             <td>Round ${s.round}</td>
-            <td class="cell-credits">${s.credits} / 40</td>
+            <td class="cell-credits">${s.credits} / ${s.mission_credits ?? 4}</td>
             <td><span class="status-badge status-${s.status}">${s.status.toUpperCase()}</span></td>
           `;
           tbody.appendChild(tr);

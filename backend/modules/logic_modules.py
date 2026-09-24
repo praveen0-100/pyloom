@@ -32,3 +32,48 @@ def execute_sort(val, config=None):
     if isinstance(val, (list, tuple)):
         return sorted(val, reverse=bool(reverse))
     return val
+
+
+_OPS = {
+    ">": lambda a, b: a > b,
+    ">=": lambda a, b: a >= b,
+    "<": lambda a, b: a < b,
+    "<=": lambda a, b: a <= b,
+    "==": lambda a, b: a == b,
+    "!=": lambda a, b: a != b,
+}
+
+
+def _compare(a, op, b):
+    if op not in _OPS:
+        raise ValueError(f"Unsupported comparison operator '{op}'.")
+    return bool(_OPS[op](a, b))
+
+
+def _number_or_raw(value):
+    """Config values arrive as text from the UI; use numbers when they look like numbers."""
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    return value
+
+
+def execute_compare(val, config=None):
+    """
+    Returns True/False.
+    - Two connected inputs [a, b]: compares a <op> b (use "==" for equality checks).
+    - One input: compares it against config['value'].
+    """
+    op = (config or {}).get("op", "==")
+    if isinstance(val, (list, tuple)) and len(val) >= 2:
+        return _compare(val[0], op, val[1])
+    return _compare(val, op, _number_or_raw((config or {}).get("value", 0)))
+
+
+def execute_ifelse(val, config=None):
+    """Returns config['then'] when (input <op> config['value']) holds, else config['otherwise']."""
+    cfg = config or {}
+    matched = _compare(val, cfg.get("op", ">="), _number_or_raw(cfg.get("value", 0)))
+    return _number_or_raw(cfg.get("then", 1) if matched else cfg.get("otherwise", 0))

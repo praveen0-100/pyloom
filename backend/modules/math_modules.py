@@ -90,6 +90,6 @@ def execute_modulus(val, config=None):
 
 def execute_round(val, config=None):
     decimals = config.get("decimals", 2) if config else 2
-    if isinstance(val, float):
-        return round(val, int(decimals))
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return round(float(val), int(decimals))
     return val

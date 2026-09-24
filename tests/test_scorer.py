@@ -20,7 +20,7 @@ class TestScorer(unittest.TestCase):
             {"passed": True}
         ]
         res = score_flow(flow, mission, test_results, graph_valid=True)
-        self.assertEqual(res["total_credits"], 50)
+        self.assertEqual(res["total_credits"], 4)
 
 if __name__ == "__main__":
     unittest.main()

@@ -244,10 +244,6 @@ function renderLevelNavigation(activeLevel) {
     if (!gamification.completed.includes(mission.id)) {
       button.classList.add(gamification.attempted.includes(mission.id) ? "is-tried" : "is-unattempted");
     }
-    if (currentLevel === "easy" && questions.indexOf(mission) < 2) {
-      button.classList.remove("is-complete", "is-tried", "is-unattempted");
-      button.classList.add("is-red");
-    }
   });
   selector.querySelectorAll(".question-chip").forEach(button => {
     button.addEventListener("click", () => loadMissionData(button.dataset.missionId));
@@ -273,19 +269,20 @@ function navigateQuestion(direction) {
 }
 
 function markMissionAttempted() {
-  const state = getGamificationState();
-  if (!state.attempted.includes(flowState.missionId)) {
-    state.attempted.push(flowState.missionId);
-    saveGamificationState(state);
+  // Only a real attempt (nodes placed and connected) turns the question bar orange.
+  if (flowState.nodes.length && flowState.edges.length) {
+    const state = getGamificationState();
+    if (!state.attempted.includes(flowState.missionId)) {
+      state.attempted.push(flowState.missionId);
+      saveGamificationState(state);
+    }
   }
   renderLevelNavigation();
 }
 
 function updateGamification(result) {
   const state = getGamificationState();
-  const scores = ["mapping_flow", "logic_building", "sample_output", "output_check"]
-    .map(key => result.scoring_breakdown?.[key] || 5);
-  const score = scores.reduce((total, value) => total + value, 0);
+  const score = result.credits || 0;
   const previousBest = state.bestScores[flowState.missionId] || 0;
   const improvedBy = Math.max(0, score - previousBest);
   if (!improvedBy) {
@@ -294,7 +291,7 @@ function updateGamification(result) {
   }
 
   state.bestScores[flowState.missionId] = score;
-  const completedNow = score === 40 && !state.completed.includes(flowState.missionId);
+  const completedNow = !!result.all_passed && !state.completed.includes(flowState.missionId);
   const xpAward = improvedBy * 3 + (completedNow ? 50 : 0);
   state.xp += xpAward;
   if (completedNow) {
@@ -458,7 +455,8 @@ async function loadParticipantProgress() {
     const state = getGamificationState();
     flowState.progressRecords = result.progress || {};
     Object.entries(result.progress || {}).forEach(([missionId, record]) => {
-      if (!state.attempted.includes(missionId)) state.attempted.push(missionId);
+      const earned = (record.best_credits || 0) > 0 || record.status === "completed";
+      if (earned && !state.attempted.includes(missionId)) state.attempted.push(missionId);
       if (record.status === "completed" && !state.completed.includes(missionId)) state.completed.push(missionId);
     });
     saveGamificationState(state);
@@ -486,6 +484,8 @@ async function loadMissionData(missionId) {
     if (!res.success) return;
 
     flowState.missionId = missionId;
+    flowState.missionInput = res.mission.input;
+    renderHintGuide(res.mission.guide);
     flowState.round = res.mission.round || 1;
     const missionLevel = (res.mission.difficulty || "easy").toLowerCase();
     // The level timer is shared by all questions in a level and restarts only
@@ -508,13 +508,35 @@ async function loadMissionData(missionId) {
       referenceImage.alt = `${res.mission.title} reference image`;
     }
     resetCanvasState();
-    restoreSavedMapping(flowState.progressRecords[missionId]);
+    const savedRecord = flowState.progressRecords[missionId];
+    restoreSavedMapping(savedRecord);
+    // A previously scored question keeps showing its recorded score instead of
+    // resetting to 0 just because the participant switched away and back.
+    if (savedRecord && savedRecord.scoring) {
+      const QUESTION_CREDITS = { easy: 4, medium: 10, hard: 25 };
+      const questionCredits = QUESTION_CREDITS[missionLevel] || 4;
+      flowState.credits = savedRecord.credits || 0;
+      updateScoringUI(flowState.credits, savedRecord.scoring, questionCredits);
+    }
 
     // Render test suite preview
     renderTestList(res.tests);
   } catch (err) {
     console.error("Failed to load mission:", err);
   }
+}
+
+function renderHintGuide(guide) {
+  const container = document.getElementById("hint-guide");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!guide) return;
+  const esc = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const section = (title, body) => `<h4>${title}</h4>${body}`;
+  container.innerHTML =
+    section("1. Input block", `<p>Enter the question input (shown in the left panel) into the Input node yourself.</p>`) +
+    section("2. Mapping (connect in this order)", `<ol>${(guide.mapping || []).map(step => `<li>${esc(step)}</li>`).join("")}</ol>`) +
+    section("3. Output check", `<p>${esc(guide.output)}</p>`);
 }
 
 function formatMissionValue(value) {
@@ -641,7 +663,7 @@ async function handleRunFlow() {
       if (chartImg) chartImg.style.display = "none";
       flowState.credits = res.credits || 0;
       if (res.progress) flowState.progressRecords[flowState.missionId] = res.progress;
-      updateScoringUI(res.credits || 0, res.scoring_breakdown || null);
+      updateScoringUI(res.credits || 0, res.scoring_breakdown || null, res.question_credits);
       consumeMappingTrial();
       return;
     }
@@ -680,13 +702,14 @@ async function handleRunFlow() {
     // Update Credits UI
     flowState.credits = res.credits;
     if (res.progress) flowState.progressRecords[flowState.missionId] = res.progress;
-    updateScoringUI(res.credits, res.scoring_breakdown);
+    updateScoringUI(res.credits, res.scoring_breakdown, res.question_credits);
     updateGamification(res);
+    const fullShare = (res.question_credits || 4) / 4;
     Object.entries(res.scoring_breakdown || {}).forEach(([key, score]) => {
       const statusEl = document.getElementById(`evaluation-status-${key}`);
       const itemEl = document.getElementById(`evaluation-item-${key}`);
       if (statusEl && itemEl) {
-        const passed = score === 10;
+        const passed = score >= fullShare;
         statusEl.textContent = passed ? "PASS" : "REVIEW";
         statusEl.className = `test-status ${passed ? 'pass' : 'fail'}`;
         itemEl.className = `test-item ${passed ? 'pass' : 'fail'}`;
@@ -694,12 +717,10 @@ async function handleRunFlow() {
     });
 
     const outputIsIncorrect = Object.entries(res.scoring_breakdown || {})
-      .some(([key, score]) => ["sample_output", "output_check"].includes(key) && score < 10);
+      .some(([key, score]) => ["sample_output", "output_check"].includes(key) && score < fullShare);
     if (outputIsIncorrect) consumeMappingTrial();
 
-    const missionComplete = ["mapping_flow", "logic_building", "sample_output", "output_check"]
-      .every(key => res.scoring_breakdown?.[key] === 10);
-    if (missionComplete) renderLevelNavigation();
+    if (res.all_passed) renderLevelNavigation();
 
   } catch (err) {
     showMappingToast("mapping flow incorrect", "error");
@@ -713,7 +734,16 @@ async function handleRunFlow() {
 async function handleSubmit() {
   try {
     const res = await API.submitSolution(getTeamId(), flowState.missionId, flowState);
-    alert(`Solution Submitted Successfully!\nStatus: ${res.status.toUpperCase()}\nCredits Earned: ${res.credits} / 40`);
+
+    // The submitted score is now the source of truth for this question's credits,
+    // exactly like Run Flow - keep the UI, saved progress and leaderboard in sync.
+    flowState.credits = res.credits || 0;
+    updateScoringUI(res.credits || 0, res.scoring_breakdown || null, res.mission_credits);
+    updateGamification(res);
+    if (res.all_passed) renderLevelNavigation();
+    await loadParticipantProgress();
+
+    alert(`Solution Submitted Successfully!\nStatus: ${res.status.toUpperCase()}\nCredits Earned: ${res.credits} / ${res.mission_credits ?? 4}`);
   } catch (err) {
     alert(`Submission failed: ${err.message}`);
   }
