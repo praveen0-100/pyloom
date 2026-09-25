@@ -40,6 +40,27 @@
     </div>
   </div>
 
+  <div id="exit-overlay" class="exit-overlay" hidden>
+    <div class="exit-card" id="exit-confirm-view">
+      <div class="participant-lock-icon">&#9211;</div>
+      <h2>Exit the event?</h2>
+      <p>Your solutions are saved. After you exit you can view your scores, but you will not be able to continue solving.</p>
+      <div class="exit-actions">
+        <button type="button" class="btn btn-secondary" id="exit-cancel-btn">Keep solving</button>
+        <button type="button" class="btn btn-primary" id="exit-confirm-btn">Exit &amp; view scores</button>
+      </div>
+    </div>
+    <div class="exit-final" id="exit-final-view" hidden>
+      <div class="exit-confetti" aria-hidden="true"></div>
+      <div class="brand-name">PYLOOM</div>
+      <h1 class="exit-thanks">THANK YOU FOR PARTICIPATING<br>IN THE PYLOOM</h1>
+      <p class="exit-player" id="exit-player"></p>
+      <div class="exit-total"><span id="exit-total">0</span><small>total credits</small></div>
+      <div class="exit-levels" id="exit-levels"></div>
+      <p class="exit-rank" id="exit-rank"></p>
+    </div>
+  </div>
+
   <header class="app-header app-gated" hidden>
     <div style="display:flex; align-items:center;">
       <a href="/" class="brand">
@@ -92,10 +113,6 @@
         <svg class="stat-pill-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 4v8M5.5 6h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4"/></svg>
         <span>Credits</span>
         <span id="event-credits-display">10</span>
-      </div>
-      <div class="player-level-pill" title="Player level">
-        <span class="player-level-icon">★</span>
-        <span>LVL <strong id="player-level">1</strong></span>
       </div>
       <div class="stat-pill" id="player-identity-pill" title="Registered player">
         <span id="player-identity-name">—</span>
@@ -342,6 +359,7 @@
           <button type="button" class="question-nav-btn" id="prev-question-btn">← Prev Ques</button>
           <span id="question-position" class="question-position" aria-live="polite"></span>
           <button type="button" class="question-nav-btn" id="next-question-btn">Next Ques →</button>
+          <button type="button" class="question-nav-btn exit-event-btn" id="exit-event-btn" hidden>Exit event</button>
         </div>
       </div>
 
@@ -422,16 +440,26 @@
   <div class="modal-overlay" id="hint-modal" role="dialog" aria-modal="true" aria-labelledby="hint-modal-title">
     <div class="modal-content hint-modal-content">
       <div class="modal-header">
-        <h3 class="modal-title" id="hint-modal-title">Mapping hint unlocked</h3>
+        <h3 class="modal-title" id="hint-modal-title">Hint</h3>
         <button type="button" class="node-btn" id="hint-modal-close-btn" aria-label="Close">×</button>
       </div>
-      <div class="modal-body">
-        <p>Your three mapping trials have been used. Review the required node order, connect each output to the next input, and compare your result with the sample output.</p>
-        <div id="hint-guide" class="hint-guide"></div>
-        <p class="hint-cost">Mapping solution hint: <strong>3 credits deducted</strong></p>
+      <div id="hint-confirm-view" class="modal-body">
+        <p>Hints are revealed <strong>one small step at a time</strong> - never the full solution.</p>
+        <p class="hint-cost">Unlocking hints for this question costs <strong>3 credits</strong>. They are deducted from your total credits and from this question's score.</p>
+        <p id="hint-credit-balance"></p>
+        <p id="hint-confirm-error" class="admin-login-error" role="alert"></p>
+        <div class="hint-modal-actions">
+          <button type="button" class="btn btn-secondary" id="hint-cancel-btn">Cancel</button>
+          <button type="button" class="btn btn-primary" id="hint-spend-btn">Spend 3 credits</button>
+        </div>
       </div>
-      <div class="hint-modal-actions">
-        <button type="button" class="btn btn-primary" id="hint-modal-use-btn">Continue</button>
+      <div id="hint-steps-view" class="modal-body" hidden>
+        <p id="hint-step-counter" class="hint-cost"></p>
+        <div id="hint-guide" class="hint-guide"></div>
+        <div class="hint-modal-actions">
+          <button type="button" class="btn btn-secondary" id="hint-modal-use-btn">Close</button>
+          <button type="button" class="btn btn-primary" id="hint-next-btn">Show next step</button>
+        </div>
       </div>
     </div>
   </div>

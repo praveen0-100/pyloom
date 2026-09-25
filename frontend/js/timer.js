@@ -20,6 +20,13 @@ function formatTimer(seconds) {
 // display is computed from the local clock, so the numbers count down smoothly and
 // a fresh poll only corrects drift instead of making the digits jump.
 let timerBaseAt = 0;
+let currentTimerLevel = null;
+let enteringLevel = false;
+
+function timerStateUrl() {
+  const team = typeof getTeamId === "function" ? getTeamId() : "";
+  return `/api/timer/state?team_id=${encodeURIComponent(team)}&level=${encodeURIComponent(currentTimerLevel || "easy")}`;
+}
 
 function displayedTimerValues() {
   const elapsed = timerState.started ? Math.max(0, (performance.now() - timerBaseAt) / 1000) : 0;
@@ -49,6 +56,12 @@ function applySharedTimerState(nextState) {
   timerState = { ...nextState };
   timerBaseAt = performance.now();
   renderSharedTimer();
+  // Once the admin has started the timers, begin this participant's countdown for
+  // the level they are on (the server records it once per level).
+  if (timerState.started && !timerState.level_entered && currentTimerLevel && !enteringLevel) {
+    enteringLevel = true;
+    setParticipantTimerLevel(currentTimerLevel).finally(() => { enteringLevel = false; });
+  }
   if ((!previous || previous.participant_lock_enabled !== timerState.participant_lock_enabled || previous.participant_violation !== timerState.participant_violation) && onParticipantLockChange) {
     onParticipantLockChange(timerState.participant_lock_enabled, timerState.participant_violation, timerState.participant_violation_reason);
   }
@@ -66,7 +79,7 @@ async function initializeSharedTimer(level, levelExpired, mainExpired, participa
   onMainExpired = mainExpired;
   onParticipantLockChange = participantLockChanged;
   try {
-    const response = await fetch("/api/timer/state");
+    const response = await fetch(timerStateUrl());
     const result = await response.json();
     if (result.success) applySharedTimerState(result.timer);
   } catch (error) {
@@ -75,7 +88,7 @@ async function initializeSharedTimer(level, levelExpired, mainExpired, participa
   if (timerStream) clearInterval(timerStream);
   const pollTimer = async () => {
     try {
-      const response = await fetch("/api/timer/state");
+      const response = await fetch(timerStateUrl());
       const result = await response.json();
       if (result.success) applySharedTimerState(result.timer);
     } catch (error) {
@@ -96,16 +109,17 @@ async function initializeSharedTimer(level, levelExpired, mainExpired, participa
 }
 
 async function setParticipantTimerLevel(level) {
+  currentTimerLevel = level;
   try {
     const response = await fetch("/api/timer/level", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ level })
+      body: JSON.stringify({ team_id: typeof getTeamId === "function" ? getTeamId() : "", level })
     });
     const result = await response.json();
     if (result.success) applySharedTimerState(result.timer);
   } catch (error) {
-    console.error("Unable to change shared timer level:", error);
+    console.error("Unable to enter level timer:", error);
   }
 }
 

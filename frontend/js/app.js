@@ -206,12 +206,10 @@ function saveTrialState(state) {
 function consumeMappingTrial() {
   const state = getTrialState();
   if (state.failed < MAX_MAPPING_TRIALS) state.failed += 1;
-  if (state.failed === MAX_MAPPING_TRIALS && !state.hintUsed) {
-    state.hintUsed = true;
-    spendEventCredits(3);
-    document.getElementById("hint-modal")?.classList.add("active");
-  }
   saveTrialState(state);
+  if (state.failed === MAX_MAPPING_TRIALS && !state.hintUsed) {
+    showMappingToast("Out of mapping trials. Tap Hint to unlock step-by-step help (3 credits).", "error");
+  }
 }
 
 function closeHintModal() {
@@ -242,7 +240,8 @@ function renderGamification() {
   const level = Math.floor(state.xp / 250) + 1;
   const levelXp = state.xp % 250;
   const progress = Math.min(100, (levelXp / 250) * 100);
-  document.getElementById("player-level").textContent = level;
+  const levelEl = document.getElementById("player-level");
+  if (levelEl) levelEl.textContent = level;
   document.getElementById("xp-display").textContent = `${state.xp} XP`;
   document.getElementById("xp-next-display").textContent = `${250 - levelXp} XP to next level`;
   document.getElementById("xp-bar").style.width = `${progress}%`;
@@ -299,6 +298,9 @@ function renderLevelNavigation(activeLevel) {
   const position = document.getElementById("question-position");
   if (previousButton) previousButton.disabled = currentIndex <= 0;
   if (nextButton) nextButton.disabled = currentIndex < 0 || currentIndex >= questions.length - 1;
+  // The last question of every level offers an Exit button.
+  const exitButton = document.getElementById("exit-event-btn");
+  if (exitButton) exitButton.hidden = !(currentIndex >= 0 && currentIndex === questions.length - 1);
   if (position) position.textContent = currentIndex >= 0 ? `${currentIndex + 1} / ${questions.length}` : "";
 }
 
@@ -345,6 +347,24 @@ function updateGamification(result) {
   }
   saveGamificationState(state);
   renderGamification();
+  if (completedNow) maybeAdvanceLevel();
+}
+
+// Finishing every question of a level moves the participant straight to the next
+// level; their level timer for it starts automatically (see timer.js).
+function maybeAdvanceLevel() {
+  const level = currentMissionLevel();
+  const done = getGamificationState().completed;
+  const inLevel = flowState.missions.filter(m => (m.difficulty || "easy").toLowerCase() === level);
+  if (!inLevel.length || !inLevel.every(m => done.includes(m.id))) return;
+  const order = ["easy", "medium", "hard"];
+  const nextLevel = order[order.indexOf(level) + 1];
+  const nextQuestion = nextLevel && flowState.missions.find(
+    m => (m.difficulty || "easy").toLowerCase() === nextLevel && !done.includes(m.id)
+  );
+  if (!nextQuestion) return;
+  showMappingToast(`${level} level complete! Moving to ${nextLevel}…`, "success");
+  setTimeout(() => loadMissionData(nextQuestion.id), 1800);
 }
 
 let mappingToastTimer = null;
@@ -375,6 +395,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const lastMission = localStorage.getItem(`pyloom-last-mission-${getTeamId()}`);
   await loadMissionData(flowState.missions.some(m => m.id === lastMission) ? lastMission : "mission_01");
   startFlowAutosave();
+  initExitFlow();
 
   document.querySelectorAll(".level-tab").forEach(tab => {
     tab.addEventListener("click", () => {
@@ -401,6 +422,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 // the admin's "Live active participants" list stays accurate.
 function startParticipantHeartbeat() {
   const beat = () => {
+    if (participantExited) return;
     fetch("/api/participant/heartbeat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -481,7 +503,7 @@ let violationReported = false;
 let fullscreenTransitionUntil = 0;
 
 function monitorParticipantActivity() {
-  if (!participantLockEnabled || participantLockViolation) return;
+  if (participantExited || !participantLockEnabled || participantLockViolation) return;
   if (Date.now() < fullscreenTransitionUntil) return;
   const activityChanged = document.visibilityState === "hidden" || !document.fullscreenElement;
   if (!activityChanged || violationReported) return;
@@ -649,17 +671,76 @@ async function loadMissionData(missionId) {
   }
 }
 
+// Hints are revealed one step at a time, and only after the participant spends 3
+// credits (once per question). Progress is remembered per question.
+let currentHintSteps = [];
+
 function renderHintGuide(guide) {
+  currentHintSteps = guide ? [
+    { title: "Input block", text: "Enter the question input (shown in the left panel) into the Input node yourself." },
+    ...(guide.mapping || []).map((step, i) => ({ title: `Mapping step ${i + 1}`, text: step })),
+    { title: "Output check", text: guide.output }
+  ].filter(step => step.text) : [];
+  renderHintSteps();
+}
+
+function renderHintSteps() {
   const container = document.getElementById("hint-guide");
   if (!container) return;
-  container.innerHTML = "";
-  if (!guide) return;
+  const state = getTrialState();
+  const revealed = Math.min(state.hintStep || 0, currentHintSteps.length);
   const esc = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const section = (title, body) => `<h4>${title}</h4>${body}`;
-  container.innerHTML =
-    section("1. Input block", `<p>Enter the question input (shown in the left panel) into the Input node yourself.</p>`) +
-    section("2. Mapping (connect in this order)", `<ol>${(guide.mapping || []).map(step => `<li>${esc(step)}</li>`).join("")}</ol>`) +
-    section("3. Output check", `<p>${esc(guide.output)}</p>`);
+  container.innerHTML = `<ol class="hint-step-list">${currentHintSteps.slice(0, revealed).map(step =>
+    `<li><strong>${esc(step.title)}</strong><br>${esc(step.text)}</li>`).join("")}</ol>`;
+  const counter = document.getElementById("hint-step-counter");
+  if (counter) counter.textContent = `Step ${revealed} of ${currentHintSteps.length}`;
+  const next = document.getElementById("hint-next-btn");
+  if (next) {
+    next.disabled = revealed >= currentHintSteps.length;
+    next.textContent = revealed === 0 ? "Show first step" : revealed >= currentHintSteps.length ? "All steps shown" : "Show next step";
+  }
+}
+
+function showHintView(paid) {
+  document.getElementById("hint-confirm-view").hidden = paid;
+  document.getElementById("hint-steps-view").hidden = !paid;
+  document.getElementById("hint-modal-title").textContent = paid ? "Hint - step by step" : "Unlock hints?";
+  if (paid) {
+    renderHintSteps();
+  } else {
+    document.getElementById("hint-credit-balance").textContent = `You have ${getEventCreditState().credits} credits.`;
+    document.getElementById("hint-confirm-error").textContent = "";
+  }
+}
+
+function openHintModal() {
+  if (!currentHintSteps.length) {
+    showMappingToast("No hint is available for this question.", "error");
+    return;
+  }
+  showHintView(Boolean(getTrialState().hintUsed));
+  document.getElementById("hint-modal")?.classList.add("active");
+}
+
+function spendCreditsForHint() {
+  if (getEventCreditState().credits < 3) {
+    document.getElementById("hint-confirm-error").textContent = "Not enough credits to unlock a hint.";
+    return;
+  }
+  spendEventCredits(3);
+  const state = getTrialState();
+  state.hintUsed = true; // also applies the 3-credit penalty to this question's score
+  state.hintStep = Math.max(state.hintStep || 0, 1);
+  saveTrialState(state);
+  showHintView(true);
+}
+
+function revealNextHintStep() {
+  const state = getTrialState();
+  if (!state.hintUsed) return;
+  state.hintStep = Math.min((state.hintStep || 0) + 1, currentHintSteps.length);
+  saveTrialState(state);
+  renderHintSteps();
 }
 
 function formatMissionValue(value) {
@@ -758,9 +839,10 @@ function initActionButtons() {
   }
   document.getElementById("hint-modal-close-btn")?.addEventListener("click", closeHintModal);
   document.getElementById("hint-modal-use-btn")?.addEventListener("click", closeHintModal);
-  document.getElementById("open-hint-btn")?.addEventListener("click", () => {
-    document.getElementById("hint-modal")?.classList.add("active");
-  });
+  document.getElementById("hint-cancel-btn")?.addEventListener("click", closeHintModal);
+  document.getElementById("hint-spend-btn")?.addEventListener("click", spendCreditsForHint);
+  document.getElementById("hint-next-btn")?.addEventListener("click", revealNextHintStep);
+  document.getElementById("open-hint-btn")?.addEventListener("click", openHintModal);
 }
 
 async function handleRunFlow() {
@@ -872,16 +954,92 @@ async function handleSubmit() {
   }
 }
 
-function lockTimedActions(message) {
-  alert(message);
-  document.getElementById("submit-flow-btn").disabled = true;
-  document.getElementById("run-flow-btn").disabled = true;
+// Timer locks. When the main timer ends everything is locked. When the level timer
+// ends, only questions of THAT level are locked; the participant can switch to
+// another level and keep solving its questions.
+let timedLockReason = "";
+
+function currentMissionLevel() {
+  return (flowState.missions.find(m => m.id === flowState.missionId)?.difficulty || "easy").toLowerCase();
+}
+
+function computeTimedLockReason() {
+  if (typeof timerState === "undefined" || !timerState || !timerState.started) return "";
+  const values = displayedTimerValues();
+  if (values.main <= 0) return "main";
+  if (values.level <= 0 && currentMissionLevel() === timerState.level) return "level";
+  return "";
+}
+
+function applyTimedLock() {
+  const reason = computeTimedLockReason();
+  if (reason === timedLockReason) return;
+  timedLockReason = reason;
+  const locked = Boolean(reason);
+  document.getElementById("submit-flow-btn").disabled = locked;
+  document.getElementById("run-flow-btn").disabled = locked;
+  if (reason === "main") {
+    showMappingToast("Main event time expired! Submissions locked.", "error");
+  } else if (reason === "level") {
+    const other = ["easy", "medium", "hard"].filter(l => l !== timerState.level).join(" or ");
+    showMappingToast(`${timerState.level} level time is up. Switch to the ${other} level to keep solving.`, "error");
+  }
 }
 
 function onLevelTimeExpired() {
-  lockTimedActions("Level time expired! Submissions locked.");
+  applyTimedLock();
 }
 
 function onMainTimeExpired() {
-  lockTimedActions("Main event time expired! Submissions locked.");
+  applyTimedLock();
+}
+
+setInterval(applyTimedLock, 500);
+
+// --- Exit event: confirm, save, then show the thank-you slide with the final scores.
+let participantExited = false;
+const EXIT_STORAGE_PREFIX = "pyloom-exited-";
+
+function initExitFlow() {
+  const overlay = document.getElementById("exit-overlay");
+  if (!overlay) return;
+  document.getElementById("exit-event-btn")?.addEventListener("click", () => {
+    document.getElementById("exit-confirm-view").hidden = false;
+    document.getElementById("exit-final-view").hidden = true;
+    overlay.hidden = false;
+  });
+  document.getElementById("exit-cancel-btn")?.addEventListener("click", () => { overlay.hidden = true; });
+  document.getElementById("exit-confirm-btn")?.addEventListener("click", async () => {
+    try { await saveFlowNow(false); } catch (_) { /* best effort */ }
+    try { localStorage.setItem(EXIT_STORAGE_PREFIX + getTeamId(), "1"); } catch (_) { /* ignore */ }
+    showExitSlide();
+    navigator.sendBeacon?.("/api/participant/logout", new Blob([JSON.stringify({ team_id: getTeamId() })], { type: "application/json" }));
+  });
+  let exited = false;
+  try { exited = localStorage.getItem(EXIT_STORAGE_PREFIX + getTeamId()) === "1"; } catch (_) { /* ignore */ }
+  if (exited) showExitSlide();
+}
+
+async function showExitSlide() {
+  participantExited = true;
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  document.getElementById("exit-confirm-view").hidden = true;
+  document.getElementById("exit-final-view").hidden = false;
+  document.getElementById("exit-overlay").hidden = false;
+  const player = getRegisteredPlayer();
+  const esc = v => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  document.getElementById("exit-player").textContent = player ? `${player.playerName} · #${player.teamId}` : "";
+  try {
+    const res = await fetch(`/api/participant/score/${encodeURIComponent(getTeamId())}`);
+    const data = await res.json();
+    if (!data.success) return;
+    document.getElementById("exit-total").textContent = data.total;
+    document.getElementById("exit-levels").innerHTML = ["easy", "medium", "hard"].map(level => {
+      const l = data.levels[level];
+      return `<div class="exit-level"><strong>${esc(level)}</strong><span>${l.completed} / ${l.questions} solved</span><span>${l.credits} credits${l.bonus ? ` + ${l.bonus} bonus` : ""}</span></div>`;
+    }).join("");
+    document.getElementById("exit-rank").textContent = data.rank ? `Rank ${data.rank} of ${data.players}` : "";
+  } catch (err) {
+    console.error("Score load error:", err);
+  }
 }

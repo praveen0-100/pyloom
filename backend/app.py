@@ -40,6 +40,12 @@ ADMIN_PASSWORD = "Admin123"
 LEVEL_TIME_LIMITS = {"easy": 18 * 60, "medium": 15 * 60, "hard": 12 * 60}
 MAIN_TIME_LIMIT = 40 * 60
 TIMER_KEY = "timer_state"
+LEVEL_ENTRIES_KEY = "level_entries"
+# Timers are started/paused only by the admin. The main timer is shared. The level
+# timer is per participant: the admin's level clock (level_run_seconds) only counts
+# the time the clock has been running; each participant's level countdown starts when
+# they enter that level, so finishing a level and moving on gives the next level its
+# own full time automatically.
 DEFAULT_TIMER_STATE = {
     "started": False,
     "main_paused": False,
@@ -48,8 +54,7 @@ DEFAULT_TIMER_STATE = {
     "participant_violation": False,
     "participant_violation_reason": "",
     "main_remaining_seconds": MAIN_TIME_LIMIT,
-    "level": "easy",
-    "level_remaining_seconds": LEVEL_TIME_LIMITS["easy"],
+    "level_run_seconds": 0.0,
     "last_tick": None,
 }
 
@@ -67,12 +72,9 @@ def _timer_snapshot(timer_state):
         if not timer_state["main_paused"]:
             timer_state["main_remaining_seconds"] = max(0, timer_state["main_remaining_seconds"] - elapsed)
         if not timer_state["level_paused"]:
-            timer_state["level_remaining_seconds"] = max(0, timer_state["level_remaining_seconds"] - elapsed)
-
+            timer_state["level_run_seconds"] += elapsed
         if timer_state["main_remaining_seconds"] <= 0:
             timer_state["main_paused"] = True
-        if timer_state["level_remaining_seconds"] <= 0:
-            timer_state["level_paused"] = True
 
     return {
         "started": timer_state["started"],
@@ -83,10 +85,8 @@ def _timer_snapshot(timer_state):
         "participant_violation": timer_state["participant_violation"],
         "participant_violation_reason": timer_state["participant_violation_reason"],
         "main_remaining_seconds": round(timer_state["main_remaining_seconds"], 2),
-        "level": timer_state["level"],
-        "level_remaining_seconds": round(timer_state["level_remaining_seconds"], 2),
+        "level_run_seconds": round(timer_state["level_run_seconds"], 3),
         "main_total_seconds": MAIN_TIME_LIMIT,
-        "level_total_seconds": LEVEL_TIME_LIMITS[timer_state["level"]],
     }
 
 
@@ -97,17 +97,49 @@ def timer_snapshot():
     return _timer_snapshot(_load_timer_state())
 
 
+def _level_view(snapshot, team_id, level):
+    """This participant's own level countdown for `level`."""
+    total = LEVEL_TIME_LIMITS[level]
+    entry = kv_get(LEVEL_ENTRIES_KEY, {}).get(team_id, {}).get(level) if team_id else None
+    remaining = total
+    if snapshot["started"] and entry is not None:
+        remaining = max(0, total - max(0, snapshot["level_run_seconds"] - entry))
+    return {
+        "level": level,
+        "level_entered": entry is not None,
+        "level_remaining_seconds": round(remaining, 2),
+        "level_total_seconds": total,
+    }
+
+
+def _participant_timer(team_id, level):
+    level = level if level in LEVEL_TIME_LIMITS else "easy"
+    snapshot = timer_snapshot()
+    return {**snapshot, **_level_view(snapshot, team_id, level)}
+
+
 @app.route("/api/timer/state", methods=["GET"])
 def get_timer_state():
-    return jsonify({"success": True, "timer": timer_snapshot()})
+    team_id = str(request.args.get("team_id", "")).strip()
+    level = str(request.args.get("level", "easy")).lower()
+    return jsonify({"success": True, "timer": _participant_timer(team_id, level)})
 
 
 @app.route("/api/timer/level", methods=["POST"])
-def set_timer_level():
-    # The level timer is shared by everyone, so participants opening different
-    # questions must not reset it for each other. Only the admin changes the level
-    # (see /api/admin/timer/control, action "set_level"); this is a read-only no-op.
-    return jsonify({"success": True, "timer": timer_snapshot()})
+def enter_timer_level():
+    """A participant entered a level: start THEIR countdown for it (once, if timers run)."""
+    payload = request.get_json() or {}
+    team_id = str(payload.get("team_id", "")).strip()
+    level = str(payload.get("level", "")).lower()
+    if not team_id or level not in LEVEL_TIME_LIMITS:
+        return jsonify({"success": False, "error": "team_id and a valid level are required"}), 400
+    snapshot = timer_snapshot()
+    if snapshot["started"]:
+        entries = kv_get(LEVEL_ENTRIES_KEY, {})
+        if level not in entries.get(team_id, {}):
+            entries.setdefault(team_id, {})[level] = snapshot["level_run_seconds"]
+            kv_set(LEVEL_ENTRIES_KEY, entries)
+    return jsonify({"success": True, "timer": _participant_timer(team_id, level)})
 
 
 @app.route("/api/admin/timer/control", methods=["POST"])
@@ -115,44 +147,35 @@ def control_timer():
     payload = request.get_json() or {}
     action = str(payload.get("action", "")).lower()
     timer_name = str(payload.get("timer", "both" if action == "start" else "")).lower()
-    if action == "set_level":
-        level = str(payload.get("level", "")).lower()
-        if level not in LEVEL_TIME_LIMITS:
-            return jsonify({"success": False, "error": "Invalid level"}), 400
-        timer_state = _load_timer_state()
-        _timer_snapshot(timer_state)
-        if timer_state["level"] != level:
-            timer_state["level"] = level
-            timer_state["level_remaining_seconds"] = LEVEL_TIME_LIMITS[level]
-            timer_state["level_paused"] = False
-        timer_state["last_tick"] = time.time()
-        snapshot = _timer_snapshot(timer_state)
-        kv_set(TIMER_KEY, timer_state)
-        return jsonify({"success": True, "timer": snapshot})
     if action not in {"start", "pause", "resume", "restart"}:
-        return jsonify({"success": False, "error": "Action must be start, pause, resume, restart, or set_level"}), 400
+        return jsonify({"success": False, "error": "Action must be start, pause, resume, or restart"}), 400
     if timer_name not in {"main", "level", "both"} or (timer_name == "both" and action != "start"):
         return jsonify({"success": False, "error": "Timer must be main or level (or both for start)"}), 400
 
     timer_state = _load_timer_state()
     _timer_snapshot(timer_state)
     if action == "start":
-        # Admin-only: starts (or restarts from full time) the main and level timers together.
+        # Admin-only: starts both timers from scratch. Every participant's level
+        # countdown begins when they (re)enter their level.
         timer_state["started"] = True
         timer_state["main_paused"] = False
         timer_state["level_paused"] = False
         timer_state["main_remaining_seconds"] = MAIN_TIME_LIMIT
-        timer_state["level_remaining_seconds"] = LEVEL_TIME_LIMITS[timer_state["level"]]
+        timer_state["level_run_seconds"] = 0.0
+        kv_set(LEVEL_ENTRIES_KEY, {})
         log_activity("ADMIN", "timer", "Admin started both timers")
-    else:
-        pause_key = f"{timer_name}_paused"
-        remaining_key = f"{timer_name}_remaining_seconds"
-        if action == "restart":
-            total_seconds = MAIN_TIME_LIMIT if timer_name == "main" else LEVEL_TIME_LIMITS[timer_state["level"]]
-            timer_state[remaining_key] = total_seconds
-            timer_state[pause_key] = False
+    elif action == "restart":
+        if timer_name == "main":
+            timer_state["main_remaining_seconds"] = MAIN_TIME_LIMIT
+            timer_state["main_paused"] = False
         else:
-            timer_state[pause_key] = action == "pause" or timer_state[remaining_key] <= 0
+            timer_state["level_paused"] = False
+            timer_state["level_run_seconds"] = 0.0
+            kv_set(LEVEL_ENTRIES_KEY, {})
+    elif timer_name == "main":
+        timer_state["main_paused"] = action == "pause" or timer_state["main_remaining_seconds"] <= 0
+    else:
+        timer_state["level_paused"] = action == "pause"
     timer_state["last_tick"] = time.time()
     snapshot = _timer_snapshot(timer_state)
     kv_set(TIMER_KEY, timer_state)
@@ -429,6 +452,24 @@ def get_mission(mission_id):
 
     return jsonify({"success": True, "mission": mission, "tests": client_tests})
 
+def _timed_lock_error(mission, team_id):
+    """Why this question can't be attempted right now because of the timers, or None.
+
+    Main timer over: everything is closed. This participant's level timer over: only
+    questions of that level are closed, so they can move on to another level.
+    """
+    snapshot = timer_snapshot()
+    if not snapshot["started"]:
+        return None
+    if snapshot["main_remaining_seconds"] <= 0:
+        return "Main event time expired. Submissions are locked."
+    level = _mission_difficulty(mission)
+    view = _level_view(snapshot, team_id, level) if level in LEVEL_TIME_LIMITS else None
+    if view and view["level_entered"] and view["level_remaining_seconds"] <= 0:
+        return f"Your {level} level time is up. Move on to another level."
+    return None
+
+
 @app.route("/api/run-flow", methods=["POST"])
 def run_flow():
     payload = request.get_json() or {}
@@ -441,6 +482,10 @@ def run_flow():
     tests_db = load_json("tests.json")
     mission = next((m for m in missions if m["id"] == mission_id), {})
     tests = tests_db.get(mission_id, [])
+
+    lock_error = _timed_lock_error(mission, team_id)
+    if lock_error:
+        return jsonify({"success": False, "error": lock_error, "output": None, "test_results": [], "locked": True}), 403
 
     # 1. Validate Graph
     is_valid, val_error = validate_flow(flow, required_modules=mission.get("required_modules"))
@@ -533,6 +578,27 @@ def run_flow():
     })
 
 
+@app.route("/api/participant/score/<team_id>", methods=["GET"])
+def participant_score(team_id):
+    """Final score summary shown to a participant when they exit the event."""
+    missions = load_json("missions.json")
+    progress = load_json("progress.json")
+    records = progress.get(team_id, {})
+    total, level_bonuses = _final_credits(team_id, progress, missions)
+    levels = {}
+    for difficulty in ("easy", "medium", "hard"):
+        level_missions = [m for m in missions if _mission_difficulty(m) == difficulty]
+        levels[difficulty] = {
+            "questions": len(level_missions),
+            "completed": sum(1 for m in level_missions if records.get(m["id"], {}).get("status") == "completed"),
+            "credits": sum(records.get(m["id"], {}).get("best_credits", 0) for m in level_missions),
+            "bonus": level_bonuses.get(difficulty, {}).get("bonus", 0),
+        }
+    board = _build_leaderboard(_admin_participants(), progress, missions)
+    rank = next((row["rank"] for row in board if row["player_id"] == team_id), None)
+    return jsonify({"success": True, "total": total, "levels": levels, "rank": rank, "players": len(board)})
+
+
 @app.route("/api/progress/<team_id>", methods=["GET"])
 def get_progress(team_id):
     progress = load_json("progress.json")
@@ -574,6 +640,10 @@ def submit_solution():
     tests_db = load_json("tests.json")
     mission = next((m for m in missions if m["id"] == mission_id), {})
     tests = tests_db.get(mission_id, [])
+
+    lock_error = _timed_lock_error(mission, team_id)
+    if lock_error:
+        return jsonify({"success": False, "submitted": False, "error": lock_error, "locked": True}), 403
 
     is_valid, _ = validate_flow(flow, required_modules=mission.get("required_modules"))
 

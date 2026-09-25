@@ -61,28 +61,20 @@
       <div class="admin-timer-heading">
         <div>
           <h3>Timer control</h3>
-          <p>Changes are synchronized with the participant console in real time.</p>
+          <p>Start and pause both timers here. Each participant's level timer (Easy 18, Medium 15, Hard 12 min) starts automatically when they enter a level.</p>
         </div>
         <span id="timer-status" class="status-badge status-rejected">Not started</span>
       </div>
       <div class="admin-timer-readouts">
         <div><span>Main timer</span><strong id="admin-main-timer">40:00</strong><small id="admin-main-status">Running</small></div>
-        <div><span>Level timer</span><strong id="admin-level-timer">20:00</strong><small id="admin-level-status">Running</small></div>
-        <div><span>Current level</span><strong id="admin-timer-level">Easy</strong></div>
+        <div><span>Level timer</span><strong id="admin-level-timer">Per player</strong><small id="admin-level-status">Running</small></div>
       </div>
       <div class="admin-timer-actions">
         <button type="button" class="btn btn-primary" id="start-timers-btn">Start both timers</button>
         <button type="button" class="btn btn-secondary" id="pause-main-timer-btn">Pause main timer</button>
         <button type="button" class="btn btn-primary" id="resume-main-timer-btn">Resume main timer</button>
-        <button type="button" class="btn btn-secondary" id="restart-main-timer-btn">Restart main timer</button>
         <button type="button" class="btn btn-secondary" id="pause-level-timer-btn">Pause level timer</button>
         <button type="button" class="btn btn-primary" id="resume-level-timer-btn">Resume level timer</button>
-        <button type="button" class="btn btn-secondary" id="restart-level-timer-btn">Restart level timer</button>
-      </div>
-      <div class="admin-timer-actions">
-        <button type="button" class="btn btn-secondary" data-set-level="easy">Level: Easy (18 min)</button>
-        <button type="button" class="btn btn-secondary" data-set-level="medium">Level: Medium (15 min)</button>
-        <button type="button" class="btn btn-secondary" data-set-level="hard">Level: Hard (12 min)</button>
       </div>
       <div id="timer-control-message" class="admin-login-error" role="status"></div>
     </div>
@@ -300,26 +292,8 @@
       const elapsed = adminTimer.started ? (performance.now() - adminTimerBaseAt) / 1000 : 0;
       const shown = (remaining, paused) => paused ? remaining : Math.max(0, remaining - elapsed);
       document.getElementById("admin-main-timer").textContent = formatClock(shown(adminTimer.main_remaining_seconds, adminTimer.main_paused));
-      document.getElementById("admin-level-timer").textContent = formatClock(shown(adminTimer.level_remaining_seconds, adminTimer.level_paused));
     }
     setInterval(paintAdminTimer, 250);
-
-    async function setTimerLevel(level) {
-      const message = document.getElementById("timer-control-message");
-      try {
-        const response = await fetch("/api/admin/timer/control", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "set_level", level })
-        });
-        const result = await response.json();
-        if (!result.success) throw new Error(result.error || "Level change failed");
-        renderAdminTimer(result.timer);
-        message.textContent = `Level set to ${level}; level timer reset.`;
-      } catch (error) {
-        message.textContent = error.message;
-      }
-    }
 
     function renderAdminTimer(timer) {
       const format = seconds => {
@@ -329,7 +303,6 @@
       adminTimer = timer;
       adminTimerBaseAt = performance.now();
       paintAdminTimer();
-      document.getElementById("admin-timer-level").textContent = timer.level.charAt(0).toUpperCase() + timer.level.slice(1);
       const allPaused = timer.main_paused && timer.level_paused;
       const started = timer.started;
       document.getElementById("timer-status").textContent = !started ? "Not started" : allPaused ? "Both paused" : "Running";
@@ -399,14 +372,11 @@
       }
     }
 
-    document.querySelectorAll("[data-set-level]").forEach(b => { b.onclick = () => setTimerLevel(b.dataset.setLevel); });
     document.getElementById("start-timers-btn").onclick = () => controlTimer("both", "start");
     document.getElementById("pause-main-timer-btn").onclick = () => controlTimer("main", "pause");
     document.getElementById("resume-main-timer-btn").onclick = () => controlTimer("main", "resume");
-    document.getElementById("restart-main-timer-btn").onclick = () => controlTimer("main", "restart");
     document.getElementById("pause-level-timer-btn").onclick = () => controlTimer("level", "pause");
     document.getElementById("resume-level-timer-btn").onclick = () => controlTimer("level", "resume");
-    document.getElementById("restart-level-timer-btn").onclick = () => controlTimer("level", "restart");
     document.getElementById("enable-participant-lock-btn").onclick = () => controlParticipantLock("enable");
     document.getElementById("release-participant-lock-btn").onclick = () => controlParticipantLock("release");
 
