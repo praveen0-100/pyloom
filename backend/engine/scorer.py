@@ -22,7 +22,7 @@ def _as_number(value):
 
 def _outputs_match(actual, expected):
     if expected == "chart":
-        return isinstance(actual, str) and actual.startswith("/generated/")
+        return isinstance(actual, str) and actual.startswith("data:image/")
     actual_num, expected_num = _as_number(actual), _as_number(expected)
     if actual_num is not None and expected_num is not None and not isinstance(actual, str):
         return abs(actual_num - expected_num) < 1e-4

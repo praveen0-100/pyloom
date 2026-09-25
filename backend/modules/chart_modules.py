@@ -2,8 +2,8 @@
 PYLOOM Chart Modules
 Matplotlib chart generation module creating static image artifacts.
 """
-import os
-import uuid
+import base64
+import io
 
 try:
     import matplotlib
@@ -46,12 +46,13 @@ def execute_line_chart(val, config=None):
     plt.grid(True, linestyle="--", alpha=0.5)
     plt.tight_layout()
     
-    # Save to generated directory
-    gen_dir = os.environ.get("PYLOOM_GENERATED_DIR") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "generated")
-    os.makedirs(gen_dir, exist_ok=True)
-    filename = f"chart_{uuid.uuid4().hex[:8]}.png"
-    filepath = os.path.join(gen_dir, filename)
-    plt.savefig(filepath, dpi=150)
+    # Encode straight to a data URI - serverless instances don't share disk, so
+    # returning the image inline avoids depending on a later request landing on
+    # the same instance that wrote the file (see backend/db.py for the same
+    # reasoning applied to participant/progress/submission records).
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format="png", dpi=150)
     plt.close()
-    
-    return f"/generated/{filename}"
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    return f"data:image/png;base64,{encoded}"

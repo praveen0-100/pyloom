@@ -6,45 +6,40 @@ import os
 import sys
 import json
 import time
-import queue
-import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, Response, jsonify, request, send_from_directory, session, redirect, stream_with_context
+from flask import Flask, jsonify, request, send_from_directory, session, redirect
 from flask_cors import CORS
 
 
 from backend.engine.validator import validate_flow
 from backend.engine.executor import execute_flow
 from backend.engine.scorer import score_flow, outputs_match
+from backend.db import kv_get, kv_set
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
 app.secret_key = os.environ.get("PYLOOM_ADMIN_SESSION_SECRET", "pyloom-admin-session-secret")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# missions.json / tests.json ship with the app and never change at runtime, so
+# they're read straight from the deployment bundle instead of the DB.
 DATA_DIR = os.path.join(BASE_DIR, "data")
-GENERATED_DIR = os.path.join(BASE_DIR, "generated")
 
-# Vercel's filesystem is read-only except /tmp, so copy the seed data there.
-if os.environ.get("VERCEL"):
-    import shutil
-    _seed_dir = DATA_DIR
-    DATA_DIR = "/tmp/pyloom_data"
-    GENERATED_DIR = "/tmp/pyloom_generated"
-    if not os.path.isdir(DATA_DIR):
-        shutil.copytree(_seed_dir, DATA_DIR)
-    os.environ["PYLOOM_GENERATED_DIR"] = GENERATED_DIR
+# Records that change at runtime (participants, progress, submissions, the
+# shared timer) live in Supabase (backend/db.py) - see MUTABLE_KEYS below -
+# so every serverless instance (participant console and admin panel alike)
+# reads and writes the exact same state instead of an instance-local copy.
+MUTABLE_KEYS = {"participants.json", "progress.json", "submissions.json"}
 
 ADMIN_USERNAME = "Adminpy"
 ADMIN_PASSWORD = "Admin123"
 
 LEVEL_TIME_LIMITS = {"easy": 18 * 60, "medium": 15 * 60, "hard": 12 * 60}
 MAIN_TIME_LIMIT = 40 * 60
-timer_lock = threading.Lock()
-timer_subscribers = set()
-timer_state = {
+TIMER_KEY = "timer_state"
+DEFAULT_TIMER_STATE = {
     "started": False,
     "main_paused": False,
     "level_paused": False,
@@ -58,11 +53,16 @@ timer_state = {
 }
 
 
-def _timer_snapshot_locked():
+def _load_timer_state():
+    return {**DEFAULT_TIMER_STATE, **kv_get(TIMER_KEY, {})}
+
+
+def _timer_snapshot(timer_state):
     """Return the authoritative timer values, materializing elapsed time first."""
     if timer_state["started"]:
-        elapsed = max(0, time.monotonic() - timer_state["last_tick"])
-        timer_state["last_tick"] = time.monotonic()
+        now = time.time()
+        elapsed = max(0, now - (timer_state["last_tick"] or now))
+        timer_state["last_tick"] = now
         if not timer_state["main_paused"]:
             timer_state["main_remaining_seconds"] = max(0, timer_state["main_remaining_seconds"] - elapsed)
         if not timer_state["level_paused"]:
@@ -89,47 +89,15 @@ def _timer_snapshot_locked():
 
 
 def timer_snapshot():
-    with timer_lock:
-        return _timer_snapshot_locked()
-
-
-def _broadcast_timer_state():
-    snapshot = timer_snapshot()
-    for subscriber in list(timer_subscribers):
-        try:
-            subscriber.put_nowait(snapshot)
-        except queue.Full:
-            pass
+    timer_state = _load_timer_state()
+    snapshot = _timer_snapshot(timer_state)
+    kv_set(TIMER_KEY, timer_state)
+    return snapshot
 
 
 @app.route("/api/timer/state", methods=["GET"])
 def get_timer_state():
     return jsonify({"success": True, "timer": timer_snapshot()})
-
-
-@app.route("/api/timer/stream", methods=["GET"])
-def timer_stream():
-    subscriber = queue.Queue(maxsize=3)
-    timer_subscribers.add(subscriber)
-
-    @stream_with_context
-    def events():
-        try:
-            subscriber.put(timer_snapshot())
-            while True:
-                try:
-                    snapshot = subscriber.get(timeout=1)
-                except queue.Empty:
-                    snapshot = timer_snapshot()
-                yield f"event: timer\ndata: {json.dumps(snapshot)}\n\n"
-        finally:
-            timer_subscribers.discard(subscriber)
-
-    return Response(events(), mimetype="text/event-stream", headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-        "Connection": "keep-alive",
-    })
 
 
 @app.route("/api/timer/level", methods=["POST"])
@@ -138,18 +106,18 @@ def set_timer_level():
     if level not in LEVEL_TIME_LIMITS:
         return jsonify({"success": False, "error": "Invalid level"}), 400
 
-    with timer_lock:
-        if not timer_state["started"]:
-            timer_state["started"] = True
-            timer_state["last_tick"] = time.monotonic()
-        _timer_snapshot_locked()
-        if timer_state["level"] != level:
-            timer_state["level"] = level
-            timer_state["level_remaining_seconds"] = LEVEL_TIME_LIMITS[level]
-            if timer_state["started"] and not timer_state["level_paused"]:
-                timer_state["last_tick"] = time.monotonic()
-        snapshot = _timer_snapshot_locked()
-    _broadcast_timer_state()
+    timer_state = _load_timer_state()
+    if not timer_state["started"]:
+        timer_state["started"] = True
+        timer_state["last_tick"] = time.time()
+    _timer_snapshot(timer_state)
+    if timer_state["level"] != level:
+        timer_state["level"] = level
+        timer_state["level_remaining_seconds"] = LEVEL_TIME_LIMITS[level]
+        if timer_state["started"] and not timer_state["level_paused"]:
+            timer_state["last_tick"] = time.time()
+    snapshot = _timer_snapshot(timer_state)
+    kv_set(TIMER_KEY, timer_state)
     return jsonify({"success": True, "timer": snapshot})
 
 
@@ -163,24 +131,24 @@ def control_timer():
     if action not in {"pause", "resume", "restart"}:
         return jsonify({"success": False, "error": "Action must be pause, resume, or restart"}), 400
 
-    with timer_lock:
-        if not timer_state["started"]:
-            timer_state["started"] = True
-            timer_state["last_tick"] = time.monotonic()
-        _timer_snapshot_locked()
-        pause_key = f"{timer_name}_paused"
-        remaining_key = f"{timer_name}_remaining_seconds"
-        if action == "restart":
-            total_seconds = MAIN_TIME_LIMIT if timer_name == "main" else LEVEL_TIME_LIMITS[timer_state["level"]]
-            timer_state[remaining_key] = total_seconds
-            timer_state[pause_key] = False
-        else:
-            timer_state[pause_key] = action == "pause" or timer_state[remaining_key] <= 0
-        if action == "resume" and timer_state[remaining_key] > 0:
-            timer_state[pause_key] = False
-        timer_state["last_tick"] = time.monotonic()
-        snapshot = _timer_snapshot_locked()
-    _broadcast_timer_state()
+    timer_state = _load_timer_state()
+    if not timer_state["started"]:
+        timer_state["started"] = True
+        timer_state["last_tick"] = time.time()
+    _timer_snapshot(timer_state)
+    pause_key = f"{timer_name}_paused"
+    remaining_key = f"{timer_name}_remaining_seconds"
+    if action == "restart":
+        total_seconds = MAIN_TIME_LIMIT if timer_name == "main" else LEVEL_TIME_LIMITS[timer_state["level"]]
+        timer_state[remaining_key] = total_seconds
+        timer_state[pause_key] = False
+    else:
+        timer_state[pause_key] = action == "pause" or timer_state[remaining_key] <= 0
+    if action == "resume" and timer_state[remaining_key] > 0:
+        timer_state[pause_key] = False
+    timer_state["last_tick"] = time.time()
+    snapshot = _timer_snapshot(timer_state)
+    kv_set(TIMER_KEY, timer_state)
     return jsonify({"success": True, "timer": snapshot})
 
 
@@ -190,28 +158,26 @@ def control_participant_lock():
     if action not in {"enable", "release"}:
         return jsonify({"success": False, "error": "Action must be enable or release"}), 400
 
-    with timer_lock:
-        timer_state["participant_lock_enabled"] = action == "enable"
-        timer_state["participant_violation"] = False
-        timer_state["participant_violation_reason"] = ""
-        snapshot = _timer_snapshot_locked()
-    _broadcast_timer_state()
+    timer_state = _load_timer_state()
+    timer_state["participant_lock_enabled"] = action == "enable"
+    timer_state["participant_violation"] = False
+    timer_state["participant_violation_reason"] = ""
+    snapshot = _timer_snapshot(timer_state)
+    kv_set(TIMER_KEY, timer_state)
     return jsonify({"success": True, "participant_lock_enabled": snapshot["participant_lock_enabled"]})
 
 
 @app.route("/api/participant/lock-violation", methods=["POST"])
 def report_participant_lock_violation():
     reason = str((request.get_json() or {}).get("reason", "Fullscreen or focus was lost"))[:160]
-    with timer_lock:
-        if timer_state["participant_lock_enabled"]:
-            timer_state["participant_violation"] = True
-            timer_state["participant_violation_reason"] = reason
-        snapshot = _timer_snapshot_locked()
-    _broadcast_timer_state()
+    timer_state = _load_timer_state()
+    if timer_state["participant_lock_enabled"]:
+        timer_state["participant_violation"] = True
+        timer_state["participant_violation_reason"] = reason
+    snapshot = _timer_snapshot(timer_state)
+    kv_set(TIMER_KEY, timer_state)
     return jsonify({"success": True, "participant_violation": snapshot["participant_violation"]})
 
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(GENERATED_DIR, exist_ok=True)
 
 @app.before_request
 def protect_admin_routes():
@@ -220,7 +186,11 @@ def protect_admin_routes():
         if not session.get("admin_authenticated"):
             return jsonify({"success": False, "error": "Admin authentication required"}), 401
 
+MUTABLE_DEFAULTS = {"participants.json": [], "progress.json": {}, "submissions.json": []}
+
 def load_json(filename):
+    if filename in MUTABLE_KEYS:
+        return kv_get(filename, MUTABLE_DEFAULTS[filename])
     path = os.path.join(DATA_DIR, filename)
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
@@ -228,6 +198,9 @@ def load_json(filename):
     return [] if filename.endswith(".json") else {}
 
 def save_json(filename, data):
+    if filename in MUTABLE_KEYS:
+        kv_set(filename, data)
+        return
     path = os.path.join(DATA_DIR, filename)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
@@ -285,10 +258,6 @@ def admin_session():
 def admin_logout():
     session.pop("admin_authenticated", None)
     return jsonify({"success": True})
-
-@app.route("/generated/<path:filename>")
-def serve_generated(filename):
-    return send_from_directory(GENERATED_DIR, filename)
 
 @app.route("/api/participant/register", methods=["POST"])
 def register_participant():
@@ -445,7 +414,7 @@ def run_flow():
     )
 
     # Detect output type (text, number, pattern, chart image)
-    is_chart = isinstance(base_output, str) and base_output.startswith("/generated/")
+    is_chart = isinstance(base_output, str) and base_output.startswith("data:image/")
 
     return jsonify({
         "success": True,

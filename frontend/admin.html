@@ -353,21 +353,20 @@
       }
     }
 
+    let adminTimerPoll = null;
     function connectAdminTimer() {
-      fetch("/api/timer/state")
+      const poll = () => fetch("/api/timer/state")
         .then(response => response.json())
         .then(result => {
           if (result.success) {
             renderAdminTimer(result.timer);
             renderParticipantPolicy(result.timer);
           }
-        });
-      const stream = new EventSource("/api/timer/stream");
-      stream.addEventListener("timer", event => {
-        const timer = JSON.parse(event.data);
-        renderAdminTimer(timer);
-        renderParticipantPolicy(timer);
-      });
+        })
+        .catch(err => console.error("Timer poll error:", err));
+      poll();
+      if (adminTimerPoll) clearInterval(adminTimerPoll);
+      adminTimerPoll = setInterval(poll, 2000);
     }
 
     function renderParticipantLock(enabled) {

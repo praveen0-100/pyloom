@@ -61,13 +61,16 @@ async function initializeSharedTimer(level, levelExpired, mainExpired, participa
     console.error("Unable to load shared timer:", error);
   }
   if (level) await setParticipantTimerLevel(level);
-  if (timerStream) timerStream.close();
-  timerStream = new EventSource("/api/timer/stream");
-  timerStream.addEventListener("timer", event => {
-    try { applySharedTimerState(JSON.parse(event.data)); }
-    catch (error) { console.error("Invalid shared timer update:", error); }
-  });
-  timerStream.onerror = () => {};
+  if (timerStream) clearInterval(timerStream);
+  timerStream = setInterval(async () => {
+    try {
+      const response = await fetch("/api/timer/state");
+      const result = await response.json();
+      if (result.success) applySharedTimerState(result.timer);
+    } catch (error) {
+      console.error("Unable to poll shared timer:", error);
+    }
+  }, 2000);
   startDisplayTick();
 }
 
