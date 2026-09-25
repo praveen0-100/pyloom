@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import time
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -74,25 +75,26 @@ def _timer_snapshot(timer_state):
             timer_state["level_paused"] = True
 
     return {
+        "started": timer_state["started"],
         "paused": timer_state["main_paused"] and timer_state["level_paused"],
         "main_paused": timer_state["main_paused"],
         "level_paused": timer_state["level_paused"],
         "participant_lock_enabled": timer_state["participant_lock_enabled"],
         "participant_violation": timer_state["participant_violation"],
         "participant_violation_reason": timer_state["participant_violation_reason"],
-        "main_remaining_seconds": int(timer_state["main_remaining_seconds"]),
+        "main_remaining_seconds": round(timer_state["main_remaining_seconds"], 2),
         "level": timer_state["level"],
-        "level_remaining_seconds": int(timer_state["level_remaining_seconds"]),
+        "level_remaining_seconds": round(timer_state["level_remaining_seconds"], 2),
         "main_total_seconds": MAIN_TIME_LIMIT,
         "level_total_seconds": LEVEL_TIME_LIMITS[timer_state["level"]],
     }
 
 
 def timer_snapshot():
-    timer_state = _load_timer_state()
-    snapshot = _timer_snapshot(timer_state)
-    kv_set(TIMER_KEY, timer_state)
-    return snapshot
+    # Read-only: computed on a copy and never written back. Participant and admin
+    # consoles poll this every second; if each poll saved its (stale) copy it could
+    # overwrite an admin pause/resume made a moment earlier.
+    return _timer_snapshot(_load_timer_state())
 
 
 @app.route("/api/timer/state", methods=["GET"])
@@ -102,50 +104,55 @@ def get_timer_state():
 
 @app.route("/api/timer/level", methods=["POST"])
 def set_timer_level():
-    level = str((request.get_json() or {}).get("level", "")).lower()
-    if level not in LEVEL_TIME_LIMITS:
-        return jsonify({"success": False, "error": "Invalid level"}), 400
-
-    timer_state = _load_timer_state()
-    if not timer_state["started"]:
-        timer_state["started"] = True
-        timer_state["last_tick"] = time.time()
-    _timer_snapshot(timer_state)
-    if timer_state["level"] != level:
-        timer_state["level"] = level
-        timer_state["level_remaining_seconds"] = LEVEL_TIME_LIMITS[level]
-        if timer_state["started"] and not timer_state["level_paused"]:
-            timer_state["last_tick"] = time.time()
-    snapshot = _timer_snapshot(timer_state)
-    kv_set(TIMER_KEY, timer_state)
-    return jsonify({"success": True, "timer": snapshot})
+    # The level timer is shared by everyone, so participants opening different
+    # questions must not reset it for each other. Only the admin changes the level
+    # (see /api/admin/timer/control, action "set_level"); this is a read-only no-op.
+    return jsonify({"success": True, "timer": timer_snapshot()})
 
 
 @app.route("/api/admin/timer/control", methods=["POST"])
 def control_timer():
     payload = request.get_json() or {}
     action = str(payload.get("action", "")).lower()
-    timer_name = str(payload.get("timer", "")).lower()
-    if timer_name not in {"main", "level"}:
-        return jsonify({"success": False, "error": "Timer must be main or level"}), 400
-    if action not in {"pause", "resume", "restart"}:
-        return jsonify({"success": False, "error": "Action must be pause, resume, or restart"}), 400
+    timer_name = str(payload.get("timer", "both" if action == "start" else "")).lower()
+    if action == "set_level":
+        level = str(payload.get("level", "")).lower()
+        if level not in LEVEL_TIME_LIMITS:
+            return jsonify({"success": False, "error": "Invalid level"}), 400
+        timer_state = _load_timer_state()
+        _timer_snapshot(timer_state)
+        if timer_state["level"] != level:
+            timer_state["level"] = level
+            timer_state["level_remaining_seconds"] = LEVEL_TIME_LIMITS[level]
+            timer_state["level_paused"] = False
+        timer_state["last_tick"] = time.time()
+        snapshot = _timer_snapshot(timer_state)
+        kv_set(TIMER_KEY, timer_state)
+        return jsonify({"success": True, "timer": snapshot})
+    if action not in {"start", "pause", "resume", "restart"}:
+        return jsonify({"success": False, "error": "Action must be start, pause, resume, restart, or set_level"}), 400
+    if timer_name not in {"main", "level", "both"} or (timer_name == "both" and action != "start"):
+        return jsonify({"success": False, "error": "Timer must be main or level (or both for start)"}), 400
 
     timer_state = _load_timer_state()
-    if not timer_state["started"]:
-        timer_state["started"] = True
-        timer_state["last_tick"] = time.time()
     _timer_snapshot(timer_state)
-    pause_key = f"{timer_name}_paused"
-    remaining_key = f"{timer_name}_remaining_seconds"
-    if action == "restart":
-        total_seconds = MAIN_TIME_LIMIT if timer_name == "main" else LEVEL_TIME_LIMITS[timer_state["level"]]
-        timer_state[remaining_key] = total_seconds
-        timer_state[pause_key] = False
+    if action == "start":
+        # Admin-only: starts (or restarts from full time) the main and level timers together.
+        timer_state["started"] = True
+        timer_state["main_paused"] = False
+        timer_state["level_paused"] = False
+        timer_state["main_remaining_seconds"] = MAIN_TIME_LIMIT
+        timer_state["level_remaining_seconds"] = LEVEL_TIME_LIMITS[timer_state["level"]]
+        log_activity("ADMIN", "timer", "Admin started both timers")
     else:
-        timer_state[pause_key] = action == "pause" or timer_state[remaining_key] <= 0
-    if action == "resume" and timer_state[remaining_key] > 0:
-        timer_state[pause_key] = False
+        pause_key = f"{timer_name}_paused"
+        remaining_key = f"{timer_name}_remaining_seconds"
+        if action == "restart":
+            total_seconds = MAIN_TIME_LIMIT if timer_name == "main" else LEVEL_TIME_LIMITS[timer_state["level"]]
+            timer_state[remaining_key] = total_seconds
+            timer_state[pause_key] = False
+        else:
+            timer_state[pause_key] = action == "pause" or timer_state[remaining_key] <= 0
     timer_state["last_tick"] = time.time()
     snapshot = _timer_snapshot(timer_state)
     kv_set(TIMER_KEY, timer_state)
@@ -167,11 +174,70 @@ def control_participant_lock():
     return jsonify({"success": True, "participant_lock_enabled": snapshot["participant_lock_enabled"]})
 
 
+ACTIVITY_KEY = "activity_log"
+PRESENCE_KEY = "presence"
+ACTIVITY_LIMIT = 300
+PRESENCE_TTL_SECONDS = 15
+
+
+def log_activity(team_id, kind, detail):
+    """Append one participant/admin event to the shared activity feed (newest last)."""
+    log = kv_get(ACTIVITY_KEY, [])
+    log.append({"time": time.time(), "team_id": team_id, "kind": kind, "detail": detail})
+    kv_set(ACTIVITY_KEY, log[-ACTIVITY_LIMIT:])
+
+
+def touch_presence(team_id, mission_id=None, active=True):
+    """Record that a participant is online (heartbeat) and which question they are on."""
+    presence = kv_get(PRESENCE_KEY, {})
+    entry = presence.get(team_id, {})
+    changed_mission = mission_id and entry.get("mission_id") != mission_id
+    entry.update({"last_seen": time.time(), "online": active})
+    if mission_id:
+        entry["mission_id"] = mission_id
+    presence[team_id] = entry
+    kv_set(PRESENCE_KEY, presence)
+    return changed_mission
+
+
+@app.route("/api/participant/status/<team_id>", methods=["GET"])
+def participant_status(team_id):
+    participant = next((p for p in load_json("participants.json") if p.get("team_id") == team_id), None)
+    return jsonify({"success": True, "status": participant.get("status", "pending") if participant else "unknown"})
+
+
+@app.route("/api/participant/heartbeat", methods=["POST"])
+def participant_heartbeat():
+    payload = request.get_json() or {}
+    team_id = str(payload.get("team_id", "")).strip()
+    if not team_id:
+        return jsonify({"success": False, "error": "team_id required"}), 400
+    mission_id = str(payload.get("mission_id", "")).strip() or None
+    participant = next((p for p in load_json("participants.json") if p.get("team_id") == team_id), None)
+    if not participant or participant.get("status") != "active":
+        return jsonify({"success": False, "error": "Not allowed by admin"}), 403
+    # visible=false means the participant switched tab/window: mark them inactive now.
+    if touch_presence(team_id, mission_id, active=bool(payload.get("visible", True))) and payload.get("visible", True):
+        log_activity(team_id, "question", f"Opened question {mission_id}")
+    return jsonify({"success": True})
+
+
+@app.route("/api/participant/logout", methods=["POST"])
+def participant_logout():
+    team_id = str((request.get_json() or {}).get("team_id", "")).strip()
+    if team_id:
+        touch_presence(team_id, active=False)
+        log_activity(team_id, "logout", "Left the competition")
+    return jsonify({"success": True})
+
+
 @app.route("/api/participant/lock-violation", methods=["POST"])
 def report_participant_lock_violation():
-    reason = str((request.get_json() or {}).get("reason", "Fullscreen or focus was lost"))[:160]
+    body = request.get_json() or {}
+    reason = str(body.get("reason", "Fullscreen or focus was lost"))[:160]
     timer_state = _load_timer_state()
     if timer_state["participant_lock_enabled"]:
+        log_activity(str(body.get("team_id", "")).strip() or "UNKNOWN", "violation", reason)
         timer_state["participant_violation"] = True
         timer_state["participant_violation_reason"] = reason
     snapshot = _timer_snapshot(timer_state)
@@ -179,11 +245,37 @@ def report_participant_lock_violation():
     return jsonify({"success": True, "participant_violation": snapshot["participant_violation"]})
 
 
+ADMIN_LOCK_KEY = "admin_lock"
+ADMIN_LOCK_TTL_SECONDS = 10
+
+
+def _admin_lock_active(lock):
+    return bool(lock) and time.time() - lock.get("last_seen", 0) < ADMIN_LOCK_TTL_SECONDS
+
+
+def _claim_admin(refresh_only=False):
+    """Only one admin may be signed in at a time (participants are unlimited).
+
+    The active admin holds a lock that their dashboard keeps alive by polling; it
+    expires a few seconds after they close the tab, freeing the seat. Returns True
+    if this browser session holds (or just took) the admin seat.
+    """
+    sid = session.get("admin_id")
+    lock = kv_get(ADMIN_LOCK_KEY, None)
+    if _admin_lock_active(lock) and lock.get("id") != sid:
+        return False
+    if refresh_only and not sid:
+        return False
+    if not lock or lock.get("id") != sid or time.time() - lock.get("last_seen", 0) > 3:
+        kv_set(ADMIN_LOCK_KEY, {"id": sid, "last_seen": time.time()})
+    return True
+
+
 @app.before_request
 def protect_admin_routes():
-    public_admin_paths = {"/api/admin/login", "/api/admin/session"}
+    public_admin_paths = {"/api/admin/login", "/api/admin/session", "/api/admin/logout"}
     if request.path.startswith("/api/admin/") and request.path not in public_admin_paths:
-        if not session.get("admin_authenticated"):
+        if not session.get("admin_authenticated") or not _claim_admin(refresh_only=True):
             return jsonify({"success": False, "error": "Admin authentication required"}), 401
 
 MUTABLE_DEFAULTS = {"participants.json": [], "progress.json": {}, "submissions.json": []}
@@ -229,6 +321,7 @@ def record_progress(team_id, mission_id, status, flow=None, scoring=None, total_
         current["status"] = status
     participant[mission_id] = current
     save_json("progress.json", progress)
+    log_activity(team_id, "run", f"Ran {mission_id}: {status.replace('_', ' ')}, {total_credits if total_credits is not None else 0} credits")
     return current
 
 @app.route("/")
@@ -245,27 +338,37 @@ def admin_login():
     payload = request.get_json() or {}
     if payload.get("username") != ADMIN_USERNAME or payload.get("password") != ADMIN_PASSWORD:
         return jsonify({"success": False, "error": "Invalid username or password"}), 401
+    session["admin_id"] = session.get("admin_id") or uuid.uuid4().hex
+    if not _claim_admin():
+        session.pop("admin_id", None)
+        return jsonify({"success": False, "error": "Another admin is already signed in. Only one admin is allowed at a time."}), 409
     session["admin_authenticated"] = True
     return jsonify({"success": True})
 
 
 @app.route("/api/admin/session", methods=["GET"])
 def admin_session():
-    return jsonify({"success": True, "authenticated": bool(session.get("admin_authenticated"))})
+    authenticated = bool(session.get("admin_authenticated")) and _claim_admin(refresh_only=True)
+    return jsonify({"success": True, "authenticated": authenticated})
 
 
 @app.route("/api/admin/logout", methods=["POST"])
 def admin_logout():
+    lock = kv_get(ADMIN_LOCK_KEY, None)
+    if lock and lock.get("id") == session.get("admin_id"):
+        kv_set(ADMIN_LOCK_KEY, {})
     session.pop("admin_authenticated", None)
+    session.pop("admin_id", None)
     return jsonify({"success": True})
+
 
 @app.route("/api/participant/register", methods=["POST"])
 def register_participant():
     """Public self-registration for the participant console (login-style gate).
 
     Upserts the player's profile into participants.json keyed by their chosen
-    Player ID (used as team_id everywhere else in the API) and marks them active
-    so they can start immediately without waiting on admin approval.
+    Player ID (used as team_id everywhere else in the API). New players start as
+    "pending" and appear on the admin panel until the admin allows them in.
     """
     payload = request.get_json() or {}
     team_id = str(payload.get("team_id", "")).strip()
@@ -282,17 +385,18 @@ def register_participant():
         participant["player_name"] = player_name
         participant["college"] = college
         participant["year_of_study"] = year_of_study
-        participant["status"] = "active"
+        # Keep the existing status: an already-allowed player stays allowed on re-login.
     else:
         participant = {
             "team_id": team_id,
             "player_name": player_name,
             "college": college,
             "year_of_study": year_of_study,
-            "status": "active",
+            "status": "pending",
         }
         participants.append(participant)
     save_json("participants.json", participants)
+    log_activity(team_id, "login", f"{player_name} logged in")
     return jsonify({"success": True, "participant": participant})
 
 
@@ -434,6 +538,30 @@ def get_progress(team_id):
     progress = load_json("progress.json")
     return jsonify({"success": True, "progress": progress.get(team_id, {})})
 
+@app.route("/api/save-flow", methods=["POST"])
+def save_flow_draft():
+    """Autosave a participant's in-progress mapping so a refresh never loses it.
+
+    Only stores the flow; it never touches attempts, credits or status.
+    """
+    payload = request.get_json() or {}
+    team_id = str(payload.get("team_id", "")).strip()
+    mission_id = str(payload.get("mission_id", "")).strip()
+    flow = payload.get("flow")
+    if not team_id or not mission_id or not isinstance(flow, dict)             or not isinstance(flow.get("nodes", []), list) or not isinstance(flow.get("edges", []), list):
+        return jsonify({"success": False, "error": "team_id, mission_id and a valid flow are required"}), 400
+    participant = next((p for p in load_json("participants.json") if p.get("team_id") == team_id), None)
+    if not participant or participant.get("status") != "active":
+        return jsonify({"success": False, "error": "Not allowed by admin"}), 403
+
+    progress = load_json("progress.json")
+    record = progress.setdefault(team_id, {}).setdefault(mission_id, {})
+    record["flow"] = flow
+    record["saved_at"] = time.time()
+    save_json("progress.json", progress)
+    return jsonify({"success": True})
+
+
 @app.route("/api/submit", methods=["POST"])
 def submit_solution():
     payload = request.get_json() or {}
@@ -502,6 +630,7 @@ def submit_solution():
         submissions.append(record)
 
     save_json("submissions.json", submissions)
+    log_activity(team_id, "submit", f"Submitted {mission.get('title', mission_id)}: {record['status']}, {record['credits']} credits")
 
     return jsonify({
         "submitted": True,
@@ -689,6 +818,18 @@ def allow_admin_participant(team_id):
     return jsonify({"success": True, "participant": participant})
 
 
+@app.route("/api/admin/participants/<team_id>/revoke", methods=["POST"])
+def revoke_admin_participant(team_id):
+    """Send an allowed participant back to pending (they must be activated again)."""
+    participants = load_json("participants.json")
+    participant = next((p for p in participants if p.get("team_id") == team_id), None)
+    if not participant:
+        return jsonify({"success": False, "error": "Participant not found"}), 404
+    participant["status"] = "pending"
+    save_json("participants.json", participants)
+    return jsonify({"success": True, "participant": participant})
+
+
 @app.route("/api/admin/participants/<team_id>", methods=["PUT"])
 def update_admin_participant(team_id):
     """Admin-only: edit a participant's profile fields (name, college, year of study)."""
@@ -744,6 +885,28 @@ def get_admin_leaderboard():
     return jsonify({"success": True, "leaderboard": _build_leaderboard(participants, progress, missions)})
 
 
+def _online_participants(participants, missions):
+    """Participants whose console sent a heartbeat within PRESENCE_TTL_SECONDS."""
+    presence = kv_get(PRESENCE_KEY, {})
+    titles = {m["id"]: m.get("title", m["id"]) for m in missions}
+    by_team = {p.get("team_id"): p for p in participants}
+    now = time.time()
+    online = []
+    for team_id, entry in presence.items():
+        if not entry.get("online") or now - entry.get("last_seen", 0) > PRESENCE_TTL_SECONDS:
+            continue
+        p = by_team.get(team_id, {})
+        online.append({
+            "team_id": team_id,
+            "player_name": p.get("player_name") or "—",
+            "college": p.get("college") or "—",
+            "mission": titles.get(entry.get("mission_id"), entry.get("mission_id") or "—"),
+            "seconds_since_seen": int(now - entry.get("last_seen", now)),
+        })
+    online.sort(key=lambda row: row["team_id"])
+    return online
+
+
 @app.route("/api/admin/live", methods=["GET"])
 def get_admin_live():
     """Everything the admin dashboard polls for, in one round trip.
@@ -771,6 +934,10 @@ def get_admin_live():
     wrong_questions = sum(1 for s in submissions if s.get("status") == "rejected")
     total_questions = len(participant_ids) * len(missions)
 
+    online_list = _online_participants(participants, missions)
+    online_ids = {row["team_id"] for row in online_list}
+    participants = [{**p, "online": p.get("team_id") in online_ids} for p in participants]
+
     return jsonify({
         "success": True,
         "timer": timer_snapshot(),
@@ -788,11 +955,10 @@ def get_admin_live():
                 "incomplete": max(0, total_questions - len(attempted_pairs)),
             },
             "participant_records": participants,
-            "progress_records": progress,
         },
         "leaderboard": _build_leaderboard(participants, progress, missions),
         "submissions": submissions,
-        "teams_online": max(len(submissions) + 2, 5),
+        "online_participants": online_list,
     })
 
 if __name__ == "__main__":

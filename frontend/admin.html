@@ -48,16 +48,12 @@
 
     <div class="stats-row">
       <div class="stat-card">
-        <div class="stat-val" id="stat-online">18</div>
-        <div class="stat-lbl">Active Participants</div>
+        <div class="stat-val" id="stat-online">0</div>
+        <div class="stat-lbl">Online now</div>
       </div>
       <div class="stat-card">
         <div class="stat-val" id="stat-submitted">0</div>
         <div class="stat-lbl">Total submissions received</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val" id="stat-avg-score">0.0</div>
-        <div class="stat-lbl">Average credits</div>
       </div>
     </div>
 
@@ -67,7 +63,7 @@
           <h3>Timer control</h3>
           <p>Changes are synchronized with the participant console in real time.</p>
         </div>
-        <span id="timer-status" class="status-badge status-accepted">Running</span>
+        <span id="timer-status" class="status-badge status-rejected">Not started</span>
       </div>
       <div class="admin-timer-readouts">
         <div><span>Main timer</span><strong id="admin-main-timer">40:00</strong><small id="admin-main-status">Running</small></div>
@@ -75,12 +71,18 @@
         <div><span>Current level</span><strong id="admin-timer-level">Easy</strong></div>
       </div>
       <div class="admin-timer-actions">
+        <button type="button" class="btn btn-primary" id="start-timers-btn">Start both timers</button>
         <button type="button" class="btn btn-secondary" id="pause-main-timer-btn">Pause main timer</button>
         <button type="button" class="btn btn-primary" id="resume-main-timer-btn">Resume main timer</button>
         <button type="button" class="btn btn-secondary" id="restart-main-timer-btn">Restart main timer</button>
         <button type="button" class="btn btn-secondary" id="pause-level-timer-btn">Pause level timer</button>
         <button type="button" class="btn btn-primary" id="resume-level-timer-btn">Resume level timer</button>
         <button type="button" class="btn btn-secondary" id="restart-level-timer-btn">Restart level timer</button>
+      </div>
+      <div class="admin-timer-actions">
+        <button type="button" class="btn btn-secondary" data-set-level="easy">Level: Easy (18 min)</button>
+        <button type="button" class="btn btn-secondary" data-set-level="medium">Level: Medium (15 min)</button>
+        <button type="button" class="btn btn-secondary" data-set-level="hard">Level: Hard (12 min)</button>
       </div>
       <div id="timer-control-message" class="admin-login-error" role="status"></div>
     </div>
@@ -103,17 +105,11 @@
     <div class="admin-section-grid">
       <div class="table-card">
         <h3>Participant access</h3>
+        <p style="color:var(--text-dim); margin-top:-4px;">Players appear here when they log in to the participant console. Click Activate to let them in; Deactivate sends them back to waiting.</p>
         <div class="metric-list">
           <div><span>Participants in canvas</span><strong id="stat-canvas">0</strong></div>
           <div><span>Active participants</span><strong id="stat-active">0</strong></div>
           <div><span>Pending participants</span><strong id="stat-pending">0</strong></div>
-        </div>
-        <div class="participant-add">
-          <input id="participant-team-id" class="search-input" placeholder="Team / Player ID" autocomplete="off">
-          <input id="participant-name" class="search-input" placeholder="Player name" autocomplete="off">
-          <input id="participant-college" class="search-input" placeholder="College" autocomplete="off">
-          <input id="participant-year" class="search-input" placeholder="Year of study" autocomplete="off">
-          <button type="button" class="btn btn-primary" id="add-participant-btn">Add pending</button>
         </div>
         <div id="participant-list" class="participant-list"></div>
       </div>
@@ -138,11 +134,12 @@
       </div>
     </div>
 
-    <div class="table-card question-summary-card">
-      <h3>Saved participant mappings</h3>
+    <div class="table-card">
+      <h3>Live active participants</h3>
+      <p style="color:var(--text-dim); margin-top:-4px;">Participants currently logged in with the console open.</p>
       <table class="admin-table">
-        <thead><tr><th>Participant</th><th>Question</th><th>Status</th><th>Attempts</th><th>Saved mapping</th></tr></thead>
-        <tbody id="progress-mappings-tbody"><tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No saved mappings yet.</td></tr></tbody>
+        <thead><tr><th>Player ID</th><th>Player name</th><th>College</th><th>Current question</th><th>Last seen</th></tr></thead>
+        <tbody id="online-tbody"><tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr></tbody>
       </table>
     </div>
 
@@ -189,18 +186,6 @@
 
   <script src="/js/api.js"></script>
   <script>
-    // Mission id -> title, fetched once (missions.json is static, never changes at
-    // runtime) and reused on every live-poll tick to label saved mappings.
-    let missionNames = {};
-    async function loadMissionNames() {
-      try {
-        const missions = await (await fetch("/api/missions")).json();
-        missionNames = Object.fromEntries((missions.missions || []).map(m => [m.id, m.title]));
-      } catch (err) {
-        console.error("Mission list load error:", err);
-      }
-    }
-
     function renderSummary(data) {
       document.getElementById("stat-canvas").textContent = data.participants.canvas;
       document.getElementById("stat-active").textContent = data.participants.active;
@@ -213,47 +198,43 @@
         document.getElementById(`questions-${key}`).textContent = data.questions[key];
       });
 
-      const list = document.getElementById("participant-list");
-      list.innerHTML = data.participant_records.map(p => `
-        <div class="participant-row"><span>${p.team_id}</span>
-          ${p.status === "pending" ? `<button type="button" class="btn btn-secondary allow-participant" data-team-id="${p.team_id}">Allow</button>` : `<span class="status-badge status-accepted">ACTIVE</span>`}
+      // Pending players first (with an Activate button), then allowed players
+      // marked ACTIVE (console open) or INACTIVE (left, closed browser, switched tab).
+      const rank = p => p.status === "pending" ? 0 : p.online ? 1 : 2;
+      const records = [...data.participant_records].sort((a, b) => rank(a) - rank(b));
+      const html = records.map(p => `
+        <div class="participant-row"><span>${escHtml(p.team_id)}${p.player_name ? " — " + escHtml(p.player_name) : ""}</span>
+          ${p.status === "pending"
+            ? `<button type="button" class="btn btn-primary allow-participant" data-action="allow" data-team-id="${escHtml(p.team_id)}">Activate</button>`
+            : `<span class="status-badge ${p.online ? "status-accepted" : "status-rejected"}">${p.online ? "ACTIVE" : "INACTIVE"}</span>
+               <button type="button" class="btn btn-secondary allow-participant" data-action="revoke" data-team-id="${escHtml(p.team_id)}">Deactivate</button>`}
         </div>`).join("");
-      list.querySelectorAll(".allow-participant").forEach(button => {
-        button.onclick = async () => {
-          await fetch(`/api/admin/participants/${encodeURIComponent(button.dataset.teamId)}/allow`, { method: "POST" });
-          pollLive();
-        };
-      });
-
-      const mappingsBody = document.getElementById("progress-mappings-tbody");
-      const rows = [];
-      Object.entries(data.progress_records || {}).forEach(([teamId, records]) => {
-        Object.entries(records).forEach(([missionId, record]) => {
-          const mapping = JSON.stringify(record.flow || {}, null, 2)
-            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-          rows.push(`<tr><td class="cell-team">${teamId}</td><td>${missionNames[missionId] || missionId}</td><td><span class="status-badge status-${record.status === "completed" ? "accepted" : "rejected"}">${record.status.toUpperCase()}</span></td><td>${record.attempts || 0}</td><td><details><summary>View / edit flow</summary><textarea class="mapping-editor" data-team-id="${teamId}" data-mission-id="${missionId}">${mapping}</textarea><button type="button" class="btn btn-secondary save-mapping-btn">Save mapping</button></details></td></tr>`);
-        });
-      });
-      mappingsBody.innerHTML = rows.length ? rows.join("") : '<tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No saved mappings yet.</td></tr>';
-      mappingsBody.querySelectorAll(".save-mapping-btn").forEach(button => {
-        button.onclick = async () => {
-          const editor = button.parentElement.querySelector(".mapping-editor");
-          try {
-            const flow = JSON.parse(editor.value);
-            const response = await fetch(`/api/admin/progress/${encodeURIComponent(editor.dataset.teamId)}/${encodeURIComponent(editor.dataset.missionId)}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ flow })
-            });
-            const result = await response.json();
-            button.textContent = result.success ? "Saved" : "Save failed";
-            if (result.success) setTimeout(() => { button.textContent = "Save mapping"; }, 1600);
-          } catch (err) {
-            button.textContent = "Invalid JSON";
-          }
-        };
-      });
+      // Only touch the DOM when something changed; rebuilding the list on every poll
+      // used to swallow clicks on the button.
+      const list = document.getElementById("participant-list");
+      if (list.dataset.html !== html) {
+        list.dataset.html = html;
+        list.innerHTML = html || '<div class="participant-row"><span style="color:var(--text-dim)">No players have logged in yet.</span></div>';
+      }
     }
+
+    document.getElementById("participant-list").addEventListener("click", async event => {
+      const button = event.target.closest(".allow-participant");
+      if (!button || button.disabled) return;
+      button.disabled = true;
+      const action = button.dataset.action || "allow";
+      button.textContent = action === "allow" ? "Activating…" : "Deactivating…";
+      try {
+        const res = await fetch(`/api/admin/participants/${encodeURIComponent(button.dataset.teamId)}/${action}`, { method: "POST" });
+        const result = await res.json();
+        if (!result.success) throw new Error(result.error || "Failed");
+      } catch (err) {
+        button.disabled = false;
+        button.textContent = "Retry";
+        return;
+      }
+      pollLive();
+    });
 
     function renderLeaderboard(leaderboard) {
       const tbody = document.getElementById("leaderboard-tbody");
@@ -273,13 +254,8 @@
         </tr>`).join("");
     }
 
-    function renderSubmissions(submissions, teamsOnline) {
-      document.getElementById("stat-online").textContent = teamsOnline;
+    function renderSubmissions(submissions) {
       document.getElementById("stat-submitted").textContent = submissions.length;
-
-      const totalCredits = submissions.reduce((acc, s) => acc + s.credits, 0);
-      const avg = submissions.length ? (totalCredits / submissions.length).toFixed(1) : "0.0";
-      document.getElementById("stat-avg-score").textContent = avg;
 
       const tbody = document.getElementById("submissions-tbody");
       if (!submissions.length) {
@@ -296,23 +272,76 @@
         </tr>`).join("");
     }
 
+    const escHtml = value => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    function renderOnline(online) {
+      document.getElementById("stat-online").textContent = online.length;
+      const tbody = document.getElementById("online-tbody");
+      tbody.innerHTML = online.length ? online.map(p => `
+        <tr>
+          <td class="cell-team">${escHtml(p.team_id)}</td>
+          <td>${escHtml(p.player_name)}</td>
+          <td>${escHtml(p.college)}</td>
+          <td>${escHtml(p.mission)}</td>
+          <td><span class="status-badge status-accepted">ONLINE</span> ${p.seconds_since_seen}s ago</td>
+        </tr>`).join("") : '<tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr>';
+    }
+
+    // Smooth countdown: the server value is the baseline at each poll and the digits
+    // are advanced from the local clock in between, so they never jump or stall.
+    let adminTimer = null;
+    let adminTimerBaseAt = 0;
+    const formatClock = seconds => {
+      const value = Math.max(0, Math.ceil(Number(seconds) || 0));
+      return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+    };
+    function paintAdminTimer() {
+      if (!adminTimer) return;
+      const elapsed = adminTimer.started ? (performance.now() - adminTimerBaseAt) / 1000 : 0;
+      const shown = (remaining, paused) => paused ? remaining : Math.max(0, remaining - elapsed);
+      document.getElementById("admin-main-timer").textContent = formatClock(shown(adminTimer.main_remaining_seconds, adminTimer.main_paused));
+      document.getElementById("admin-level-timer").textContent = formatClock(shown(adminTimer.level_remaining_seconds, adminTimer.level_paused));
+    }
+    setInterval(paintAdminTimer, 250);
+
+    async function setTimerLevel(level) {
+      const message = document.getElementById("timer-control-message");
+      try {
+        const response = await fetch("/api/admin/timer/control", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "set_level", level })
+        });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || "Level change failed");
+        renderAdminTimer(result.timer);
+        message.textContent = `Level set to ${level}; level timer reset.`;
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
     function renderAdminTimer(timer) {
       const format = seconds => {
         const value = Math.max(0, Math.floor(Number(seconds) || 0));
         return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
       };
-      document.getElementById("admin-main-timer").textContent = format(timer.main_remaining_seconds);
-      document.getElementById("admin-level-timer").textContent = format(timer.level_remaining_seconds);
+      adminTimer = timer;
+      adminTimerBaseAt = performance.now();
+      paintAdminTimer();
       document.getElementById("admin-timer-level").textContent = timer.level.charAt(0).toUpperCase() + timer.level.slice(1);
       const allPaused = timer.main_paused && timer.level_paused;
-      document.getElementById("timer-status").textContent = allPaused ? "Both paused" : "Independent control";
-      document.getElementById("timer-status").className = `status-badge ${allPaused ? "status-rejected" : "status-accepted"}`;
-      document.getElementById("admin-main-status").textContent = timer.main_paused ? "Paused" : "Running";
-      document.getElementById("admin-level-status").textContent = timer.level_paused ? "Paused" : "Running";
-      document.getElementById("pause-main-timer-btn").disabled = timer.main_paused;
-      document.getElementById("resume-main-timer-btn").disabled = !timer.main_paused;
-      document.getElementById("pause-level-timer-btn").disabled = timer.level_paused;
-      document.getElementById("resume-level-timer-btn").disabled = !timer.level_paused;
+      const started = timer.started;
+      document.getElementById("timer-status").textContent = !started ? "Not started" : allPaused ? "Both paused" : "Running";
+      document.getElementById("timer-status").className = `status-badge ${started && !allPaused ? "status-accepted" : "status-rejected"}`;
+      const state = paused => !started ? "Not started" : paused ? "Paused" : "Running";
+      document.getElementById("admin-main-status").textContent = state(timer.main_paused);
+      document.getElementById("admin-level-status").textContent = state(timer.level_paused);
+      document.getElementById("start-timers-btn").textContent = started ? "Restart both timers" : "Start both timers";
+      document.getElementById("pause-main-timer-btn").disabled = !started || timer.main_paused;
+      document.getElementById("resume-main-timer-btn").disabled = !started || !timer.main_paused;
+      document.getElementById("pause-level-timer-btn").disabled = !started || timer.level_paused;
+      document.getElementById("resume-level-timer-btn").disabled = !started || !timer.level_paused;
     }
 
     async function controlTimer(timer, action) {
@@ -326,8 +355,8 @@
         const result = await response.json();
         if (!result.success) throw new Error(result.error || "Timer update failed");
         renderAdminTimer(result.timer);
-        const actionLabel = action === "restart" ? "restarted" : `${action}d`;
-        message.textContent = `${timer === "main" ? "Main" : "Level"} timer ${actionLabel}.`;
+        const actionLabel = action === "restart" ? "restarted" : `${action}${action.endsWith("e") ? "d" : "ed"}`;
+        message.textContent = action === "start" ? "Both timers started." : `${timer === "main" ? "Main" : "Level"} timer ${actionLabel}.`;
       } catch (error) {
         message.textContent = error.message;
       }
@@ -370,6 +399,8 @@
       }
     }
 
+    document.querySelectorAll("[data-set-level]").forEach(b => { b.onclick = () => setTimerLevel(b.dataset.setLevel); });
+    document.getElementById("start-timers-btn").onclick = () => controlTimer("both", "start");
     document.getElementById("pause-main-timer-btn").onclick = () => controlTimer("main", "pause");
     document.getElementById("resume-main-timer-btn").onclick = () => controlTimer("main", "resume");
     document.getElementById("restart-main-timer-btn").onclick = () => controlTimer("main", "restart");
@@ -387,29 +418,6 @@
         controlParticipantLock(key === "d" ? "enable" : "release");
       }
     });
-
-    document.getElementById("add-participant-btn").onclick = async () => {
-      const idInput = document.getElementById("participant-team-id");
-      const nameInput = document.getElementById("participant-name");
-      const collegeInput = document.getElementById("participant-college");
-      const yearInput = document.getElementById("participant-year");
-      if (!idInput.value.trim()) return;
-      await fetch("/api/admin/participants", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          team_id: idInput.value.trim(),
-          player_name: nameInput.value.trim(),
-          college: collegeInput.value.trim(),
-          year_of_study: yearInput.value.trim()
-        })
-      });
-      idInput.value = "";
-      nameInput.value = "";
-      collegeInput.value = "";
-      yearInput.value = "";
-      pollLive();
-    };
 
     const loginView = document.getElementById("admin-login");
     const dashboard = document.getElementById("admin-dashboard");
@@ -429,11 +437,19 @@
       livePollInFlight = true;
       try {
         const res = await fetch("/api/admin/live");
+        if (res.status === 401) {
+          // Session ended (signed out or another admin took over): back to sign-in.
+          stopLivePolling();
+          dashboard.hidden = true;
+          loginView.hidden = false;
+          return;
+        }
         const data = await res.json();
         if (!data.success) return;
         renderSummary(data.summary);
         renderLeaderboard(data.leaderboard);
-        renderSubmissions(data.submissions, data.teams_online);
+        renderSubmissions(data.submissions);
+        renderOnline(data.online_participants || []);
         renderAdminTimer(data.timer);
         renderParticipantPolicy(data.timer);
       } catch (err) {
@@ -463,7 +479,6 @@
     async function showDashboard() {
       loginView.hidden = true;
       dashboard.hidden = false;
-      await loadMissionNames();
       startLivePolling();
     }
 

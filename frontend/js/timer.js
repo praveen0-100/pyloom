@@ -16,21 +16,38 @@ function formatTimer(seconds) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+// The server sends the remaining time at the moment of each poll; between polls the
+// display is computed from the local clock, so the numbers count down smoothly and
+// a fresh poll only corrects drift instead of making the digits jump.
+let timerBaseAt = 0;
+
+function displayedTimerValues() {
+  const elapsed = timerState.started ? Math.max(0, (performance.now() - timerBaseAt) / 1000) : 0;
+  return {
+    main: timerState.main_paused ? timerState.main_remaining_seconds : Math.max(0, timerState.main_remaining_seconds - elapsed),
+    level: timerState.level_paused ? timerState.level_remaining_seconds : Math.max(0, timerState.level_remaining_seconds - elapsed)
+  };
+}
+
 function renderSharedTimer() {
   if (!timerState) return;
+  const values = displayedTimerValues();
   const levelEl = document.getElementById("timer-display");
   const mainEl = document.getElementById("main-timer-display");
-  if (levelEl) levelEl.textContent = formatTimer(timerState.level_remaining_seconds);
-  if (mainEl) mainEl.textContent = formatTimer(timerState.main_remaining_seconds);
+  if (levelEl) levelEl.textContent = formatTimer(Math.ceil(values.level));
+  if (mainEl) mainEl.textContent = formatTimer(Math.ceil(values.main));
   document.querySelector(".timer-box")?.classList.toggle("is-paused", timerState.level_paused);
   document.querySelector(".main-timer-box")?.classList.toggle("is-paused", timerState.main_paused);
   const status = document.getElementById("timer-status");
-  if (status) status.textContent = timerState.paused ? "Paused" : "Running";
+  if (status) status.textContent = !timerState.started ? "Waiting for admin" : timerState.paused ? "Paused" : "Running";
+  document.querySelector(".timer-box")?.classList.toggle("is-waiting", !timerState.started);
+  document.querySelector(".main-timer-box")?.classList.toggle("is-waiting", !timerState.started);
 }
 
 function applySharedTimerState(nextState) {
   const previous = timerState;
   timerState = { ...nextState };
+  timerBaseAt = performance.now();
   renderSharedTimer();
   if ((!previous || previous.participant_lock_enabled !== timerState.participant_lock_enabled || previous.participant_violation !== timerState.participant_violation) && onParticipantLockChange) {
     onParticipantLockChange(timerState.participant_lock_enabled, timerState.participant_violation, timerState.participant_violation_reason);
@@ -41,12 +58,7 @@ function applySharedTimerState(nextState) {
 
 function startDisplayTick() {
   clearInterval(timerTick);
-  timerTick = setInterval(() => {
-    if (!timerState) return;
-    if (!timerState.main_paused) timerState.main_remaining_seconds = Math.max(0, timerState.main_remaining_seconds - 1);
-    if (!timerState.level_paused) timerState.level_remaining_seconds = Math.max(0, timerState.level_remaining_seconds - 1);
-    renderSharedTimer();
-  }, 1000);
+  timerTick = setInterval(renderSharedTimer, 250);
 }
 
 async function initializeSharedTimer(level, levelExpired, mainExpired, participantLockChanged) {
@@ -60,7 +72,6 @@ async function initializeSharedTimer(level, levelExpired, mainExpired, participa
   } catch (error) {
     console.error("Unable to load shared timer:", error);
   }
-  if (level) await setParticipantTimerLevel(level);
   if (timerStream) clearInterval(timerStream);
   const pollTimer = async () => {
     try {

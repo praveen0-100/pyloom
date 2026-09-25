@@ -426,6 +426,8 @@ body {
 }
 
 .timer-box.is-paused,
+.timer-box.is-waiting,
+.main-timer-box.is-waiting,
 .main-timer-box.is-paused {
   opacity: 0.65;
 }

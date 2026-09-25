@@ -50,7 +50,51 @@ function initParticipantRegistration() {
     const form = document.getElementById("participant-register-form");
     const errorEl = document.getElementById("participant-register-error");
 
-    const revealApp = () => {
+    // Blocks the console until the admin allows this player in (polls every 2s).
+    const waitForApproval = async player => {
+      let note = document.getElementById("participant-approval");
+      const showWaiting = () => {
+        form.hidden = true;
+        if (!note) {
+          note = document.createElement("p");
+          note.id = "participant-approval";
+          form.parentElement.appendChild(note);
+        }
+        note.textContent = `Waiting for admin to allow ${player.playerName} (#${player.teamId}). This page will open automatically.`;
+        gate.hidden = false;
+      };
+      // Re-announce this player to the server on every load. Players stored in this
+      // browser from an earlier visit may be unknown to the server, and would
+      // otherwise never show up on the admin panel to be activated.
+      try {
+        await fetch("/api/participant/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            team_id: player.teamId,
+            player_name: player.playerName,
+            college: player.college,
+            year_of_study: player.yearOfStudy
+          })
+        });
+      } catch (err) {
+        /* retried by the polling loop below on the next status check */
+      }
+      for (;;) {
+        try {
+          const res = await fetch(`/api/participant/status/${encodeURIComponent(player.teamId)}`);
+          const result = await res.json();
+          if (result.status === "active") return;
+        } catch (err) {
+          /* server unreachable: keep waiting */
+        }
+        showWaiting();
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    };
+
+    const revealApp = async () => {
+      await waitForApproval(getRegisteredPlayer());
       gate.hidden = true;
       document.querySelectorAll(".app-gated").forEach(el => { el.hidden = false; });
       renderPlayerIdentity();
@@ -327,7 +371,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   await loadMissionsList();
   await loadParticipantProgress();
-  await loadMissionData("mission_01");
+  // Reopen the question the participant was last on (refresh keeps their place).
+  const lastMission = localStorage.getItem(`pyloom-last-mission-${getTeamId()}`);
+  await loadMissionData(flowState.missions.some(m => m.id === lastMission) ? lastMission : "mission_01");
+  startFlowAutosave();
 
   document.querySelectorAll(".level-tab").forEach(tab => {
     tab.addEventListener("click", () => {
@@ -347,7 +394,26 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   initializeParticipantLockUI();
   initializeSharedTimer("easy", onLevelTimeExpired, onMainTimeExpired, handleParticipantLockChange);
+  startParticipantHeartbeat();
 });
+
+// Tells the server this participant is online (and which question they are on) so
+// the admin's "Live active participants" list stays accurate.
+function startParticipantHeartbeat() {
+  const beat = () => {
+    fetch("/api/participant/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team_id: getTeamId(), mission_id: flowState.missionId || "", visible: document.visibilityState === "visible" })
+    }).catch(() => {});
+  };
+  beat();
+  setInterval(beat, 5000);
+  document.addEventListener("visibilitychange", beat);
+  window.addEventListener("pagehide", () => {
+    navigator.sendBeacon("/api/participant/logout", new Blob([JSON.stringify({ team_id: getTeamId() })], { type: "application/json" }));
+  });
+}
 
 let participantLockEnabled = false;
 
@@ -425,7 +491,7 @@ function monitorParticipantActivity() {
   fetch("/api/participant/lock-violation", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reason: document.visibilityState === "hidden" ? "Participant tab or window lost visibility" : "Participant exited browser full screen" })
+    body: JSON.stringify({ team_id: getTeamId(), reason: document.visibilityState === "hidden" ? "Participant tab or window lost visibility" : "Participant exited browser full screen" })
   }).catch(() => {});
 }
 
@@ -464,6 +530,59 @@ async function loadParticipantProgress() {
   } catch (err) {
     console.error("Progress load error:", err);
   }
+}
+
+// --- Autosave: the canvas is saved to the server shortly after every change
+// (nodes moved/added/removed, parameters edited, connections made), so a refresh,
+// crash or closed tab never loses a participant's mapping.
+let autosaveReady = false;
+let lastSavedSignature = "";
+
+function currentFlowPayload() {
+  return {
+    nodes: flowState.nodes.map(n => ({ id: n.id, type: n.type, config: n.config, x: n.x, y: n.y })),
+    edges: flowState.edges.map(e => ({ from: e.from, to: e.to }))
+  };
+}
+
+function flowSignature() {
+  return JSON.stringify(currentFlowPayload());
+}
+
+function saveFlowNow(useBeacon) {
+  const body = JSON.stringify({ team_id: getTeamId(), mission_id: flowState.missionId, flow: currentFlowPayload() });
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon("/api/save-flow", new Blob([body], { type: "application/json" }));
+    return Promise.resolve();
+  }
+  return fetch("/api/save-flow", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+}
+
+function startFlowAutosave() {
+  const save = async () => {
+    if (!autosaveReady) return;
+    const signature = flowSignature();
+    if (signature === lastSavedSignature) return;
+    lastSavedSignature = signature;
+    const missionId = flowState.missionId;
+    const flow = currentFlowPayload();
+    try {
+      const res = await saveFlowNow(false);
+      if (res && res.ok === false) throw new Error("save failed");
+      // Keep the in-memory copy in step so switching questions restores the latest.
+      flowState.progressRecords[missionId] = { ...(flowState.progressRecords[missionId] || {}), flow };
+    } catch (err) {
+      lastSavedSignature = ""; // retry on the next tick
+    }
+  };
+  setInterval(save, 1500);
+  const flush = () => {
+    if (!autosaveReady || flowSignature() === lastSavedSignature) return;
+    lastSavedSignature = flowSignature();
+    saveFlowNow(true);
+  };
+  window.addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flush(); });
 }
 
 function restoreSavedMapping(record) {
@@ -507,9 +626,13 @@ async function loadMissionData(missionId) {
       referenceImage.src = res.mission.image || "";
       referenceImage.alt = `${res.mission.title} reference image`;
     }
+    autosaveReady = false;
+    try { localStorage.setItem(`pyloom-last-mission-${getTeamId()}`, missionId); } catch (_) { /* ignore */ }
     resetCanvasState();
     const savedRecord = flowState.progressRecords[missionId];
     restoreSavedMapping(savedRecord);
+    lastSavedSignature = flowSignature();
+    autosaveReady = true;
     // A previously scored question keeps showing its recorded score instead of
     // resetting to 0 just because the participant switched away and back.
     if (savedRecord && savedRecord.scoring) {
