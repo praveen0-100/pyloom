@@ -706,23 +706,18 @@ def update_admin_participant(team_id):
     return jsonify({"success": True, "participant": participant})
 
 
-@app.route("/api/admin/leaderboard", methods=["GET"])
-def get_admin_leaderboard():
-    """Admin-only leaderboard: player ID, name, college, year of study, and total score.
+def _build_leaderboard(participants, progress, missions):
+    """Shared by /api/admin/leaderboard and /api/admin/live so both stay in sync.
 
     Score is recorded automatically: every /api/run-flow call that earns credits on a
     question updates that team's best_credits for the question in progress.json, and
-    this endpoint sums the best credits across every level/question a team has
-    attempted, plus a one-time bonus per level once a team has fully completed it -
-    the bonus is split across level completion, correct mapping on every question,
-    passing every test case ("entire pass case"), and solving efficiently
-    (performance). Participants who have not earned any credits yet are included
-    with a score of 0 so the admin has full visibility into the roster.
+    this sums the best credits across every level/question a team has attempted,
+    plus a one-time bonus per level once a team has fully completed it - the bonus
+    is split across level completion, correct mapping on every question, passing
+    every test case ("entire pass case"), and solving efficiently (performance).
+    Participants who have not earned any credits yet are included with a score of 0
+    so the admin has full visibility into the roster.
     """
-    participants = _admin_participants()
-    progress = load_json("progress.json")
-    missions = load_json("missions.json")
-
     leaderboard = []
     for participant in participants:
         team_id = participant.get("team_id")
@@ -735,12 +730,70 @@ def get_admin_leaderboard():
             "score": score,
             "level_bonuses": level_bonuses,
         })
-
     leaderboard.sort(key=lambda row: row["score"], reverse=True)
     for rank, row in enumerate(leaderboard, start=1):
         row["rank"] = rank
+    return leaderboard
 
-    return jsonify({"success": True, "leaderboard": leaderboard})
+
+@app.route("/api/admin/leaderboard", methods=["GET"])
+def get_admin_leaderboard():
+    participants = _admin_participants()
+    progress = load_json("progress.json")
+    missions = load_json("missions.json")
+    return jsonify({"success": True, "leaderboard": _build_leaderboard(participants, progress, missions)})
+
+
+@app.route("/api/admin/live", methods=["GET"])
+def get_admin_live():
+    """Everything the admin dashboard polls for, in one round trip.
+
+    Replaces four separate polled requests (summary, leaderboard, submissions,
+    timer) with a single call so the dashboard can refresh on a tight interval
+    without multiplying serverless invocations per tick.
+    """
+    missions = load_json("missions.json")
+    submissions = load_json("submissions.json")
+    progress = load_json("progress.json")
+    participants = _admin_participants()
+
+    levels = {}
+    for difficulty in ("easy", "medium", "hard"):
+        level_missions = [m for m in missions if _mission_difficulty(m) == difficulty]
+        level_ids = {m["id"] for m in level_missions}
+        completed = len({s["team_id"] for s in submissions
+                          if s.get("mission_id") in level_ids and s.get("status") == "accepted"})
+        levels[difficulty] = {"total": len(level_missions), "completed": completed}
+
+    participant_ids = {p["team_id"] for p in participants}
+    attempted_pairs = {(s.get("team_id"), s.get("mission_id")) for s in submissions}
+    completed_questions = sum(1 for s in submissions if s.get("status") == "accepted")
+    wrong_questions = sum(1 for s in submissions if s.get("status") == "rejected")
+    total_questions = len(participant_ids) * len(missions)
+
+    return jsonify({
+        "success": True,
+        "timer": timer_snapshot(),
+        "summary": {
+            "participants": {
+                "canvas": len(participants),
+                "active": sum(1 for p in participants if p.get("status") == "active"),
+                "pending": sum(1 for p in participants if p.get("status") == "pending"),
+            },
+            "levels": levels,
+            "questions": {
+                "completed": completed_questions,
+                "tried": len(attempted_pairs),
+                "wrong": wrong_questions,
+                "incomplete": max(0, total_questions - len(attempted_pairs)),
+            },
+            "participant_records": participants,
+            "progress_records": progress,
+        },
+        "leaderboard": _build_leaderboard(participants, progress, missions),
+        "submissions": submissions,
+        "teams_online": max(len(submissions) + 2, 5),
+    })
 
 if __name__ == "__main__":
     print("Starting PYLOOM Web Application on http://127.0.0.1:5000 ...")

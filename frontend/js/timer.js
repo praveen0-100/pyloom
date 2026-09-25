@@ -62,7 +62,7 @@ async function initializeSharedTimer(level, levelExpired, mainExpired, participa
   }
   if (level) await setParticipantTimerLevel(level);
   if (timerStream) clearInterval(timerStream);
-  timerStream = setInterval(async () => {
+  const pollTimer = async () => {
     try {
       const response = await fetch("/api/timer/state");
       const result = await response.json();
@@ -70,7 +70,17 @@ async function initializeSharedTimer(level, levelExpired, mainExpired, participa
     } catch (error) {
       console.error("Unable to poll shared timer:", error);
     }
-  }, 2000);
+  };
+  // 1s poll keeps the fullscreen-lock/violation state (admin-driven) close to
+  // instant; paused while the tab is hidden so a backgrounded participant
+  // console doesn't keep hammering the API, and catches up the moment it's
+  // visible again.
+  timerStream = setInterval(() => {
+    if (document.visibilityState === "visible") pollTimer();
+  }, 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") pollTimer();
+  });
   startDisplayTick();
 }
 
