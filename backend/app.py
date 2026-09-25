@@ -27,6 +27,16 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 GENERATED_DIR = os.path.join(BASE_DIR, "generated")
 
+# Vercel's filesystem is read-only except /tmp, so copy the seed data there.
+if os.environ.get("VERCEL"):
+    import shutil
+    _seed_dir = DATA_DIR
+    DATA_DIR = "/tmp/pyloom_data"
+    GENERATED_DIR = "/tmp/pyloom_generated"
+    if not os.path.isdir(DATA_DIR):
+        shutil.copytree(_seed_dir, DATA_DIR)
+    os.environ["PYLOOM_GENERATED_DIR"] = GENERATED_DIR
+
 ADMIN_USERNAME = "Adminpy"
 ADMIN_PASSWORD = "Admin123"
 

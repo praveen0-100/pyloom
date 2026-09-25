@@ -47,7 +47,7 @@ def execute_line_chart(val, config=None):
     plt.tight_layout()
     
     # Save to generated directory
-    gen_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "generated")
+    gen_dir = os.environ.get("PYLOOM_GENERATED_DIR") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "generated")
     os.makedirs(gen_dir, exist_ok=True)
     filename = f"chart_{uuid.uuid4().hex[:8]}.png"
     filepath = os.path.join(gen_dir, filename)
