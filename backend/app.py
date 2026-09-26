@@ -41,11 +41,10 @@ LEVEL_TIME_LIMITS = {"easy": 18 * 60, "medium": 15 * 60, "hard": 12 * 60}
 MAIN_TIME_LIMIT = 40 * 60
 TIMER_KEY = "timer_state"
 LEVEL_ENTRIES_KEY = "level_entries"
-# Timers are started/paused only by the admin. The main timer is shared. The level
-# timer is per participant: the admin's level clock (level_run_seconds) only counts
-# the time the clock has been running; each participant's level countdown starts when
-# they enter that level, so finishing a level and moving on gives the next level its
-# own full time automatically.
+# Timers are started/paused only by the admin. Both the main timer and the level
+# timer are shared: every participant sees the same countdown. The level countdown is
+# the level's limit minus the admin's level clock (level_run_seconds); the admin
+# restarts the level timer to give the whole cohort a fresh clock for the next level.
 DEFAULT_TIMER_STATE = {
     "started": False,
     "main_paused": False,
@@ -98,15 +97,18 @@ def timer_snapshot():
 
 
 def _level_view(snapshot, team_id, level):
-    """This participant's own level countdown for `level`."""
+    """The level countdown for `level`.
+
+    Shared timeline: it runs off the admin's single level clock, so every participant
+    on every device sees the same value regardless of when they logged in or entered.
+    """
     total = LEVEL_TIME_LIMITS[level]
-    entry = kv_get(LEVEL_ENTRIES_KEY, {}).get(team_id, {}).get(level) if team_id else None
     remaining = total
-    if snapshot["started"] and entry is not None:
-        remaining = max(0, total - max(0, snapshot["level_run_seconds"] - entry))
+    if snapshot["started"]:
+        remaining = max(0, total - snapshot["level_run_seconds"])
     return {
         "level": level,
-        "level_entered": entry is not None,
+        "level_entered": snapshot["started"],
         "level_remaining_seconds": round(remaining, 2),
         "level_total_seconds": total,
     }
@@ -133,12 +135,7 @@ def enter_timer_level():
     level = str(payload.get("level", "")).lower()
     if not team_id or level not in LEVEL_TIME_LIMITS:
         return jsonify({"success": False, "error": "team_id and a valid level are required"}), 400
-    snapshot = timer_snapshot()
-    if snapshot["started"]:
-        entries = kv_get(LEVEL_ENTRIES_KEY, {})
-        if level not in entries.get(team_id, {}):
-            entries.setdefault(team_id, {})[level] = snapshot["level_run_seconds"]
-            kv_set(LEVEL_ENTRIES_KEY, entries)
+    # Level timer is shared, so entering a level no longer starts a personal clock.
     return jsonify({"success": True, "timer": _participant_timer(team_id, level)})
 
 
