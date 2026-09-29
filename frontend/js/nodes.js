@@ -40,15 +40,12 @@ function renderNodeElement(node) {
         <div class="node-title">${node.type}</div>
       </div>
       <div class="node-actions">
-        <button class="node-btn config-btn" title="Configure">⚙</button>
         <button class="node-btn delete-btn" title="Delete">✕</button>
       </div>
     </div>
     <div class="node-body">
       <div class="node-desc">${getModuleDesc(node.type)}</div>
-      <div class="node-config-summary" id="cfg-summary-${node.id}">
-        ${getConfigSummaryText(node)}
-      </div>
+      <div class="node-fields">${renderNodeFields(node)}</div>
     </div>
   `;
 
@@ -57,7 +54,7 @@ function renderNodeElement(node) {
   let isDragging = false;
   let dragOffsetX = 0, dragOffsetY = 0;
 
-  headerEl.addEventListener("mousedown", (e) => {
+  headerEl.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
     e.preventDefault();
     isDragging = true;
@@ -67,7 +64,7 @@ function renderNodeElement(node) {
     selectNode(node.id);
   });
 
-  document.addEventListener("mousemove", (e) => {
+  document.addEventListener("pointermove", (e) => {
     if (!isDragging) return;
     const viewportRect = viewport.getBoundingClientRect();
     node.x = Math.max(0, (e.clientX - viewportRect.left) / zoomLevel - dragOffsetX);
@@ -77,15 +74,11 @@ function renderNodeElement(node) {
     redrawConnections();
   });
 
-  document.addEventListener("mouseup", () => {
-    isDragging = false;
-  });
+  document.addEventListener("pointerup", () => { isDragging = false; });
+  document.addEventListener("pointercancel", () => { isDragging = false; });
 
   // Attach button events
-  nodeEl.querySelector(".config-btn").addEventListener("click", (e) => {
-    e.stopPropagation();
-    openConfigModal(node);
-  });
+  bindNodeFields(node, nodeEl);
 
   nodeEl.querySelector(".delete-btn").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -119,198 +112,100 @@ function deleteNode(nodeId) {
   redrawConnections();
 }
 
-function openConfigModal(node) {
-  const overlay = document.getElementById("config-modal");
-  const modalTitle = document.getElementById("modal-title");
-  const modalBody = document.getElementById("modal-body");
+// Editable fields shown directly on each block. Nothing is pre-filled: the example
+// values are only placeholders, and an empty field is left out of the config so the
+// engine's own defaults apply.
+const OPERATORS = ["==", "!=", ">", ">=", "<", "<="];
+const OPERAND_FIELD = { key: "operand", kind: "number", placeholder: "Operand e.g. 10" };
+const NODE_FIELDS = {
+  Input: [{ key: "data", kind: "textarea", placeholder: "Enter input data (JSON or list)" }],
+  Output: [{ key: "format", kind: "text", placeholder: "e.g. Average: {value}" }],
+  Add: [OPERAND_FIELD],
+  Subtract: [OPERAND_FIELD],
+  Multiply: [OPERAND_FIELD],
+  Divide: [OPERAND_FIELD],
+  Replace: [
+    { key: "find", kind: "text", placeholder: "Find e.g. a", raw: true },
+    { key: "replace_with", kind: "text", placeholder: "Replace with e.g. - (empty = delete)", raw: true, keepEmpty: true }
+  ],
+  Get: [{ key: "key", kind: "text", placeholder: "Key e.g. extra_hours" }],
+  Compare: [
+    { key: "op", kind: "select", options: OPERATORS, placeholder: "==" },
+    { key: "value", kind: "text", placeholder: "Value e.g. 40" }
+  ],
+  IfElse: [
+    { key: "op", kind: "select", options: OPERATORS, placeholder: ">=" },
+    { key: "value", kind: "text", placeholder: "Compare with e.g. 4.5" },
+    { key: "then", kind: "text", placeholder: "Then e.g. 2" },
+    { key: "otherwise", kind: "text", placeholder: "Otherwise e.g. 1" }
+  ],
+  Round: [{ key: "decimals", kind: "number", placeholder: "Decimals e.g. 2", integer: true }],
+  LineChart: [
+    { key: "title", kind: "text", placeholder: "Title e.g. Weekly Attendance" },
+    { key: "x_label", kind: "text", placeholder: "X label" },
+    { key: "y_label", kind: "text", placeholder: "Y label" }
+  ],
+  Filter: [
+    { key: "min", kind: "number", placeholder: "Min e.g. 0" },
+    { key: "max", kind: "number", placeholder: "Max e.g. 100" }
+  ]
+};
 
-  if (!overlay || !modalTitle || !modalBody) return;
+function escapeAttr(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
-  modalTitle.textContent = `Configure ${node.type}`;
-  modalBody.innerHTML = "";
+function fieldDisplayValue(field, node) {
+  const value = node.config[field.key];
+  if (value === undefined || value === null) return "";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
 
-  // Dynamic config form based on module type
-  if (node.type === "Input") {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Input Data (JSON format or comma-separated list)</label>
-        <textarea id="cfg-input-data" class="form-control" rows="4" placeholder="Enter the question input here">${node.config.data === undefined ? "" : JSON.stringify(node.config.data)}</textarea>
-      </div>
-    `;
-  } else if (node.type === "Output") {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Format String (Use {value})</label>
-        <input type="text" id="cfg-fmt" class="form-control" value="${node.config.format || ''}" placeholder="e.g. Average: {value}">
-      </div>
-    `;
-  } else if (["Add", "Subtract", "Multiply", "Divide"].includes(node.type)) {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Operand (Static Number if single input)</label>
-        <input type="number" id="cfg-operand" class="form-control" value="${node.config.operand || 0}">
-      </div>
-    `;
-  } else if (node.type === "Replace") {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Find Character/Sub-string</label>
-        <input type="text" id="cfg-find" class="form-control" value="${node.config.find ?? ' '}">
-      </div>
-      <div class="form-group">
-        <label>Replace With (leave empty to delete)</label>
-        <input type="text" id="cfg-replace" class="form-control" value="${node.config.replace_with ?? '-'}">
-      </div>
-    `;
-  } else if (node.type === "Get") {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Key (several keys separated by commas, no spaces)</label>
-        <input type="text" id="cfg-key" class="form-control" value="${node.config.key ?? ''}" placeholder="e.g. extra_hours">
-      </div>
-    `;
-  } else if (node.type === "Compare") {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Operator</label>
-        <select id="cfg-op" class="form-control">${operatorOptions(node.config.op ?? "==")}</select>
-      </div>
-      <div class="form-group">
-        <label>Value (only used when a single input is connected)</label>
-        <input type="text" id="cfg-value" class="form-control" value="${node.config.value ?? ''}" placeholder="e.g. 40">
-      </div>
-    `;
-  } else if (node.type === "IfElse") {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Condition: input</label>
-        <select id="cfg-op" class="form-control">${operatorOptions(node.config.op ?? ">=")}</select>
-      </div>
-      <div class="form-group">
-        <label>Value to compare with</label>
-        <input type="text" id="cfg-value" class="form-control" value="${node.config.value ?? ''}" placeholder="e.g. 4.5">
-      </div>
-      <div class="form-group">
-        <label>Then (output when the condition is true)</label>
-        <input type="text" id="cfg-then" class="form-control" value="${node.config.then ?? ''}" placeholder="e.g. 2">
-      </div>
-      <div class="form-group">
-        <label>Otherwise (output when false)</label>
-        <input type="text" id="cfg-otherwise" class="form-control" value="${node.config.otherwise ?? ''}" placeholder="e.g. 1">
-      </div>
-    `;
-  } else if (node.type === "Round") {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Decimal places</label>
-        <input type="number" id="cfg-decimals" class="form-control" min="0" value="${node.config.decimals ?? 2}">
-      </div>
-    `;
-  } else if (node.type === "LineChart") {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Chart Title</label>
-        <input type="text" id="cfg-title" class="form-control" value="${node.config.title ?? ''}" placeholder="e.g. Weekly Attendance">
-      </div>
-      <div class="form-group">
-        <label>X Axis Label</label>
-        <input type="text" id="cfg-xlabel" class="form-control" value="${node.config.x_label ?? ''}">
-      </div>
-      <div class="form-group">
-        <label>Y Axis Label</label>
-        <input type="text" id="cfg-ylabel" class="form-control" value="${node.config.y_label ?? ''}">
-      </div>
-    `;
-  } else if (node.type === "Filter") {
-    modalBody.innerHTML = `
-      <div class="form-group">
-        <label>Minimum Value</label>
-        <input type="number" id="cfg-min" class="form-control" value="${node.config.min ?? 0}">
-      </div>
-      <div class="form-group">
-        <label>Maximum Value</label>
-        <input type="number" id="cfg-max" class="form-control" value="${node.config.max ?? 100}">
-      </div>
-    `;
-  } else {
-    modalBody.innerHTML = `<p style="color:var(--text-dim); font-size:0.85rem;">No configuration required for ${node.type}.</p>`;
-  }
-
-  // Save handler
-  document.getElementById("modal-save-btn").onclick = () => {
-    if (node.type === "Input") {
-      try {
-        const val = document.getElementById("cfg-input-data").value;
-        node.config.data = JSON.parse(val);
-      } catch (err) {
-        node.config.data = document.getElementById("cfg-input-data").value;
-      }
-    } else if (node.type === "Output") {
-      node.config.format = document.getElementById("cfg-fmt").value;
-    } else if (["Add", "Subtract", "Multiply", "Divide"].includes(node.type)) {
-      node.config.operand = parseFloat(document.getElementById("cfg-operand").value);
-    } else if (node.type === "Replace") {
-      node.config.find = document.getElementById("cfg-find").value;
-      node.config.replace_with = document.getElementById("cfg-replace").value;
-    } else if (node.type === "Get") {
-      node.config.key = document.getElementById("cfg-key").value.trim();
-    } else if (node.type === "Compare") {
-      node.config.op = document.getElementById("cfg-op").value;
-      node.config.value = document.getElementById("cfg-value").value.trim();
-    } else if (node.type === "IfElse") {
-      node.config.op = document.getElementById("cfg-op").value;
-      node.config.value = document.getElementById("cfg-value").value.trim();
-      node.config.then = document.getElementById("cfg-then").value.trim();
-      node.config.otherwise = document.getElementById("cfg-otherwise").value.trim();
-    } else if (node.type === "Round") {
-      node.config.decimals = parseInt(document.getElementById("cfg-decimals").value, 10) || 0;
-    } else if (node.type === "LineChart") {
-      node.config.title = document.getElementById("cfg-title").value.trim();
-      node.config.x_label = document.getElementById("cfg-xlabel").value.trim();
-      node.config.y_label = document.getElementById("cfg-ylabel").value.trim();
-    } else if (node.type === "Filter") {
-      node.config.min = parseFloat(document.getElementById("cfg-min").value);
-      node.config.max = parseFloat(document.getElementById("cfg-max").value);
+function renderNodeFields(node) {
+  return (NODE_FIELDS[node.type] || []).map(field => {
+    const value = escapeAttr(fieldDisplayValue(field, node));
+    const common = `class="node-field" data-field="${field.key}" aria-label="${escapeAttr(field.placeholder)}"`;
+    if (field.kind === "select") {
+      const chosen = node.config[field.key] ?? field.placeholder;
+      return `<select ${common}>${field.options.map(op => `<option value="${op}"${op === chosen ? " selected" : ""}>${op}</option>`).join("")}</select>`;
     }
-
-    const summaryEl = document.getElementById(`cfg-summary-${node.id}`);
-    if (summaryEl) summaryEl.textContent = getConfigSummaryText(node);
-
-    overlay.classList.remove("active");
-  };
-
-  overlay.classList.add("active");
+    if (field.kind === "textarea") {
+      return `<textarea ${common} rows="2" placeholder="${escapeAttr(field.placeholder)}">${value}</textarea>`;
+    }
+    const type = field.kind === "number" ? "number" : "text";
+    return `<input ${common} type="${type}"${field.kind === "number" ? ' step="any"' : ""} placeholder="${escapeAttr(field.placeholder)}" value="${value}">`;
+  }).join("");
 }
 
-function operatorOptions(selected) {
-  return ["==", "!=", ">", ">=", "<", "<="]
-    .map(op => `<option value="${op}"${op === selected ? " selected" : ""}>${op}</option>`)
-    .join("");
+function readNodeField(field, el) {
+  const raw = el.value;
+  const text = field.raw ? raw : raw.trim();
+  if (text === "") return field.keepEmpty ? "" : undefined;
+  if (field.kind === "number") {
+    const num = field.integer ? parseInt(text, 10) : parseFloat(text);
+    return Number.isNaN(num) ? undefined : num;
+  }
+  if (field.key === "data") {
+    try { return JSON.parse(text); } catch (err) { return raw; }
+  }
+  return text;
 }
 
-function getConfigSummaryText(node) {
-  if (node.type === "Get" && node.config.key) return `Key: ${node.config.key}`;
-  if (node.type === "Compare" && node.config.op) return `${node.config.op} ${node.config.value ?? ""}`.trim();
-  if (node.type === "IfElse" && node.config.op) {
-    return `if ${node.config.op} ${node.config.value ?? ""} → ${node.config.then ?? ""} else ${node.config.otherwise ?? ""}`;
-  }
-  if (node.type === "LineChart" && node.config.title) return `Title: ${node.config.title}`;
-  if (["Add", "Subtract", "Multiply", "Divide"].includes(node.type) && node.config.operand !== undefined) {
-    return `Operand: ${node.config.operand}`;
-  }
-  if (node.type === "Input" && node.config.data) {
-    return `Data: ${JSON.stringify(node.config.data).slice(0, 18)}...`;
-  }
-  if (node.type === "Output" && node.config.format) {
-    return `Format: "${node.config.format}"`;
-  }
-  if (node.type === "Replace") {
-    return `'${node.config.find ?? ' '}' → '${node.config.replace_with ?? '-'}'`;
-  }
-  if (node.type === "Filter") {
-    return `Range: [${node.config.min ?? 0}, ${node.config.max ?? 100}]`;
-  }
-  return "Default config";
+// Typing edits the block directly and is saved straight away (the autosave picks it up).
+function bindNodeFields(node, nodeEl) {
+  const fields = NODE_FIELDS[node.type] || [];
+  nodeEl.querySelectorAll(".node-field").forEach(el => {
+    const field = fields.find(f => f.key === el.dataset.field);
+    const save = () => {
+      const value = readNodeField(field, el);
+      if (value === undefined) delete node.config[field.key];
+      else node.config[field.key] = value;
+    };
+    el.addEventListener(field.kind === "select" ? "change" : "input", save);
+    // Selecting/typing in a field must not start a canvas pan or drag.
+    el.addEventListener("pointerdown", (e) => { e.stopPropagation(); selectNode(node.id); });
+    el.addEventListener("keydown", (e) => e.stopPropagation());
+  });
 }
 
 function getModuleCategory(type) {

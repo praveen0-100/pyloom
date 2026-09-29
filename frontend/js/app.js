@@ -35,6 +35,20 @@ function getTeamId() {
   return getRegisteredPlayer()?.teamId || "TEAM_07";
 }
 
+// A deleted participant must be kicked out of the console immediately: wipe
+// their locally stored identity/progress and reload so they land back on the
+// registration gate (registering again is rejected server-side - see the
+// "removed" tombstone check in /api/participant/register).
+function forceParticipantLogout(message) {
+  try {
+    localStorage.removeItem(PLAYER_STORAGE_KEY);
+  } catch (err) {
+    /* ignore */
+  }
+  alert(message || "Your access was removed by the admin. You will be returned to the login screen.");
+  window.location.reload();
+}
+
 function renderPlayerIdentity() {
   const player = getRegisteredPlayer();
   const nameEl = document.getElementById("player-identity-name");
@@ -67,7 +81,7 @@ function initParticipantRegistration() {
       // browser from an earlier visit may be unknown to the server, and would
       // otherwise never show up on the admin panel to be activated.
       try {
-        await fetch("/api/participant/register", {
+        const res = await fetch("/api/participant/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -77,6 +91,11 @@ function initParticipantRegistration() {
             year_of_study: player.yearOfStudy
           })
         });
+        const result = await res.json();
+        if (result.removed) {
+          forceParticipantLogout("This participant was removed by the admin.");
+          return new Promise(() => {}); // reloading; stop this loop from proceeding
+        }
       } catch (err) {
         /* retried by the polling loop below on the next status check */
       }
@@ -85,6 +104,10 @@ function initParticipantRegistration() {
           const res = await fetch(`/api/participant/status/${encodeURIComponent(player.teamId)}`);
           const result = await res.json();
           if (result.status === "active") return;
+          if (result.status === "removed") {
+            forceParticipantLogout("This participant was removed by the admin.");
+            return new Promise(() => {}); // reloading; stop this loop from proceeding
+          }
         } catch (err) {
           /* server unreachable: keep waiting */
         }
@@ -152,9 +175,9 @@ function initParticipantRegistration() {
 
 function getEventCreditState() {
   try {
-    return { credits: 10, enteredLevels: [], ...JSON.parse(localStorage.getItem("pyloom-event-credits") || "{}") };
+    return { credits: 10, enteredLevels: [], completedLevels: [], ...JSON.parse(localStorage.getItem("pyloom-event-credits-v3") || "{}") };
   } catch (err) {
-    return { credits: 10, enteredLevels: [] };
+    return { credits: 10, enteredLevels: [], completedLevels: [] };
   }
 }
 
@@ -165,6 +188,10 @@ function renderEventCredits() {
 }
 
 function enterDifficulty(difficulty) {
+  // Entering a level no longer grants credits by itself - credits are only
+  // awarded once the level is fully completed (see awardLevelCreditsOnce).
+  // We still track which levels were entered so the UI/level-tabs logic that
+  // relies on it keeps working.
   const level = (difficulty || "easy").toLowerCase();
   const state = getEventCreditState();
   if (!["easy", "medium", "hard"].includes(level) || state.enteredLevels.includes(level)) {
@@ -172,17 +199,29 @@ function enterDifficulty(difficulty) {
     return;
   }
   state.enteredLevels.push(level);
-  state.credits += 10;
-  localStorage.setItem("pyloom-event-credits", JSON.stringify(state));
+  localStorage.setItem("pyloom-event-credits-v3", JSON.stringify(state));
   renderEventCredits();
-  showMappingToast(`${level} level unlocked · +10 credits`, "success");
 }
 
 function spendEventCredits(amount) {
   const state = getEventCreditState();
   state.credits = Math.max(0, state.credits - amount);
-  localStorage.setItem("pyloom-event-credits", JSON.stringify(state));
+  localStorage.setItem("pyloom-event-credits-v3", JSON.stringify(state));
   renderEventCredits();
+}
+
+// Awards the 10-credit level bonus exactly once, the moment every question in
+// that level has been passed.
+function awardLevelCreditsOnce(level) {
+  const state = getEventCreditState();
+  const completedLevels = state.completedLevels || [];
+  if (completedLevels.includes(level)) return;
+  completedLevels.push(level);
+  state.completedLevels = completedLevels;
+  state.credits += 10;
+  localStorage.setItem("pyloom-event-credits-v3", JSON.stringify(state));
+  renderEventCredits();
+  showMappingToast(`${level} level complete · +10 credits`, "success");
 }
 
 function getTrialState() {
@@ -278,14 +317,16 @@ function renderLevelNavigation(activeLevel) {
   });
   const gamification = getGamificationState();
   selector.innerHTML = questions.map((mission, index) => {
-    const completed = gamification.completed.includes(mission.id);
+    const completed = isMissionTrulyComplete(mission.id, gamification);
     const active = mission.id === flowState.missionId;
     return `<button type="button" class="question-chip ${active ? 'is-current' : ''} ${completed ? 'is-complete' : ''}" data-mission-id="${mission.id}" aria-current="${active ? 'true' : 'false'}">${completed ? '✓ ' : ''}Question ${index + 1}</button>`;
   }).join("");
   selector.querySelectorAll(".question-chip").forEach(button => {
     const mission = questions.find(item => item.id === button.dataset.missionId);
-    if (!gamification.completed.includes(mission.id)) {
-      button.classList.add(gamification.attempted.includes(mission.id) ? "is-tried" : "is-unattempted");
+    if (!isMissionTrulyComplete(mission.id, gamification)) {
+      // idle: red · tried: orange · wrong (invalid/incorrect mapping): red
+      const wrong = ["incorrect_mapping", "wrong_output"].includes((flowState.progressRecords || {})[mission.id]?.status);
+      button.classList.add(wrong ? "is-wrong" : gamification.attempted.includes(mission.id) ? "is-tried" : "is-unattempted");
     }
   });
   selector.querySelectorAll(".question-chip").forEach(button => {
@@ -302,6 +343,16 @@ function renderLevelNavigation(activeLevel) {
   const exitButton = document.getElementById("exit-event-btn");
   if (exitButton) exitButton.hidden = !(currentIndex >= 0 && currentIndex === questions.length - 1);
   if (position) position.textContent = currentIndex >= 0 ? `${currentIndex + 1} / ${questions.length}` : "";
+}
+
+// A question only shows green/✓ when it was solved correctly AND a mapping exists
+// (nodes + connections) - on the canvas for the open question, or in the saved
+// progress record for the others.
+function isMissionTrulyComplete(missionId, state = getGamificationState()) {
+  if (!state.completed.includes(missionId)) return false;
+  if (missionId === flowState.missionId) return flowState.nodes.length > 0 && flowState.edges.length > 0;
+  const saved = (flowState.progressRecords || {})[missionId];
+  return !!(saved && saved.status === "completed" && saved.flow && (saved.flow.nodes || []).length && (saved.flow.edges || []).length);
 }
 
 function navigateQuestion(direction) {
@@ -327,6 +378,7 @@ function markMissionAttempted() {
 }
 
 function updateGamification(result) {
+  if (result.progress) (flowState.progressRecords ||= {})[flowState.missionId] = result.progress;
   const state = getGamificationState();
   const score = result.credits || 0;
   const previousBest = state.bestScores[flowState.missionId] || 0;
@@ -337,7 +389,8 @@ function updateGamification(result) {
   }
 
   state.bestScores[flowState.missionId] = score;
-  const completedNow = !!result.all_passed && !state.completed.includes(flowState.missionId);
+  const solved = !!result.all_passed && (!result.progress || result.progress.status === "completed");
+  const completedNow = solved && flowState.nodes.length > 0 && flowState.edges.length > 0 &&!state.completed.includes(flowState.missionId);
   const xpAward = improvedBy * 3 + (completedNow ? 50 : 0);
   state.xp += xpAward;
   if (completedNow) {
@@ -357,6 +410,7 @@ function maybeAdvanceLevel() {
   const done = getGamificationState().completed;
   const inLevel = flowState.missions.filter(m => (m.difficulty || "easy").toLowerCase() === level);
   if (!inLevel.length || !inLevel.every(m => done.includes(m.id))) return;
+  awardLevelCreditsOnce(level);
   const order = ["easy", "medium", "hard"];
   const nextLevel = order[order.indexOf(level) + 1];
   const nextQuestion = nextLevel && flowState.missions.find(
@@ -420,17 +474,43 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Tells the server this participant is online (and which question they are on) so
 // the admin's "Live active participants" list stays accurate.
+// When the admin resets the questions the server epoch changes; wipe this browser's
+// per-question state (completed chips, trials, credits, autosave) and reload.
+function applyAdminReset(serverEpoch) {
+  if (serverEpoch === undefined) return;
+  const EPOCH_KEY = "pyloom-reset-epoch";
+  try {
+    const seen = localStorage.getItem(EPOCH_KEY) || "0";
+    if (seen === String(serverEpoch)) return;
+    const keep = new Set(["pyloom-player", "pyloom-color-mode", EPOCH_KEY]);
+    Object.keys(localStorage)
+      .filter(k => k.startsWith("pyloom-") && !keep.has(k))
+      .forEach(k => localStorage.removeItem(k));
+    localStorage.setItem(EPOCH_KEY, String(serverEpoch));
+    location.reload();
+  } catch (_) { /* ignore */ }
+}
+
 function startParticipantHeartbeat() {
   const beat = () => {
     if (participantExited) return;
     fetch("/api/participant/heartbeat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ team_id: getTeamId(), mission_id: flowState.missionId || "", visible: document.visibilityState === "visible" })
+      body: JSON.stringify({ team_id: getTeamId(), mission_id: flowState.missionId || "", visible: document.visibilityState === "visible", fullscreen: Boolean(document.fullscreenElement) })
+    }).then(async res => {
+      const result = await res.json().catch(() => ({}));
+      if (res.status === 403) {
+        if (result.removed) forceParticipantLogout("This participant was removed by the admin.");
+        return;
+      }
+      applyAdminReset(result.reset_epoch);
     }).catch(() => {});
   };
   beat();
   setInterval(beat, 5000);
+  // Report full screen entered/left straight away so the admin sees it live.
+  document.addEventListener("fullscreenchange", beat);
   document.addEventListener("visibilitychange", beat);
   window.addEventListener("pagehide", () => {
     navigator.sendBeacon("/api/participant/logout", new Blob([JSON.stringify({ team_id: getTeamId() })], { type: "application/json" }));
@@ -545,7 +625,8 @@ async function loadParticipantProgress() {
     Object.entries(result.progress || {}).forEach(([missionId, record]) => {
       const earned = (record.best_credits || 0) > 0 || record.status === "completed";
       if (earned && !state.attempted.includes(missionId)) state.attempted.push(missionId);
-      if (record.status === "completed" && !state.completed.includes(missionId)) state.completed.push(missionId);
+      const mapped = record.flow && (record.flow.nodes || []).length && (record.flow.edges || []).length;
+      if (record.status === "completed" && mapped && !state.completed.includes(missionId)) state.completed.push(missionId);
     });
     saveGamificationState(state);
     renderGamification();
@@ -658,7 +739,7 @@ async function loadMissionData(missionId) {
     // A previously scored question keeps showing its recorded score instead of
     // resetting to 0 just because the participant switched away and back.
     if (savedRecord && savedRecord.scoring) {
-      const QUESTION_CREDITS = { easy: 4, medium: 10, hard: 25 };
+      const QUESTION_CREDITS = { easy: 4, medium: 4, hard: 4 };
       const questionCredits = QUESTION_CREDITS[missionLevel] || 4;
       flowState.credits = savedRecord.credits || 0;
       updateScoringUI(flowState.credits, savedRecord.scoring, questionCredits);
@@ -666,6 +747,7 @@ async function loadMissionData(missionId) {
 
     // Render test suite preview
     renderTestList(res.tests);
+    if (savedRecord && savedRecord.scoring) showTestCaseEvaluation(savedRecord.scoring);
   } catch (err) {
     console.error("Failed to load mission:", err);
   }
@@ -772,6 +854,18 @@ function resetCanvasState() {
   if (chartImg) chartImg.style.display = "none";
 }
 
+// The "All test cases" row shows how many of the visible + hidden cases passed.
+function showTestCaseEvaluation(breakdown) {
+  const statusEl = document.getElementById("evaluation-status-test_cases");
+  const itemEl = document.getElementById("evaluation-item-test_cases");
+  if (!statusEl || !itemEl || !breakdown || !breakdown.tests_total) return;
+  const all = breakdown.tests_passed === breakdown.tests_total;
+  statusEl.textContent = all ? "PASS" : `${breakdown.tests_passed}/${breakdown.tests_total}`;
+  statusEl.className = `test-status ${all ? "pass" : "fail"}`;
+  itemEl.className = `test-item ${all ? "pass" : "fail"}`;
+  itemEl.title = all ? "" : "Some test cases failed - make sure your flow calculates the answer from the input (e.g. Output prints {value}) instead of a fixed value.";
+}
+
 function renderTestList(tests) {
   const container = document.getElementById("test-list");
   if (!container) return;
@@ -781,7 +875,8 @@ function renderTestList(tests) {
     ["mapping_flow", "Mapping Flow"],
     ["logic_building", "Logic building"],
     ["sample_output", "Output compare with sample output"],
-    ["output_check", "Output check"]
+    ["output_check", "Output check"],
+    ["test_cases", "All test cases (visible + hidden)"]
   ];
   evaluations.forEach(([key, label]) => {
     const item = document.createElement("div");
@@ -816,6 +911,18 @@ function initModuleDragEvents() {
     card.addEventListener("dragstart", (e) => {
       const type = card.dataset.moduleType;
       e.dataTransfer.setData("text/plain", type);
+    });
+    // Touch / small screens have no HTML5 drag-and-drop: tap adds the module
+    // near the centre of the visible canvas instead.
+    card.addEventListener("click", () => {
+      if (!window.matchMedia("(pointer: coarse), (max-width: 767px)").matches) return;
+      const wrap = document.getElementById("canvas-wrapper");
+      if (!wrap) return;
+      const n = flowState.nodes.length;
+      const x = (wrap.clientWidth / 2) / zoomLevel - panX / zoomLevel - 90 + (n % 3) * 20;
+      const y = (wrap.clientHeight / 3) / zoomLevel - panY / zoomLevel + (n % 4) * 20;
+      createNode(card.dataset.moduleType, Math.max(20, x), Math.max(20, y));
+      wrap.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   });
 }
@@ -910,7 +1017,9 @@ async function handleRunFlow() {
     updateScoringUI(res.credits, res.scoring_breakdown, res.question_credits);
     updateGamification(res);
     const fullShare = (res.question_credits || 4) / 4;
+    showTestCaseEvaluation(res.scoring_breakdown);
     Object.entries(res.scoring_breakdown || {}).forEach(([key, score]) => {
+      if (key === "test_cases") return;
       const statusEl = document.getElementById(`evaluation-status-${key}`);
       const itemEl = document.getElementById(`evaluation-item-${key}`);
       if (statusEl && itemEl) {
@@ -988,6 +1097,26 @@ function applyTimedLock() {
 
 function onLevelTimeExpired() {
   applyTimedLock();
+  advanceLevelOnTimeout();
+}
+
+// A level's shared timer ran out: move the participant straight to the next
+// level's first unfinished question, which starts that level's timer
+// automatically (loadMissionData -> startLevelTimer). If there is no next
+// level (hard just expired), there's nothing left to advance to.
+function advanceLevelOnTimeout() {
+  const order = ["easy", "medium", "hard"];
+  const level = currentMissionLevel();
+  const nextLevel = order[order.indexOf(level) + 1];
+  if (!nextLevel) return;
+
+  const inNextLevel = flowState.missions.filter(m => (m.difficulty || "easy").toLowerCase() === nextLevel);
+  if (!inNextLevel.length) return;
+
+  const gamification = getGamificationState();
+  const nextQuestion = inNextLevel.find(m => !gamification.completed.includes(m.id)) || inNextLevel[0];
+  showMappingToast(`${level} level time is up! Moving to ${nextLevel}…`, "error");
+  loadMissionData(nextQuestion.id);
 }
 
 function onMainTimeExpired() {

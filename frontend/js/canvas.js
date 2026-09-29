@@ -29,31 +29,59 @@ function initCanvas() {
     createNode(type, Math.max(20, x), Math.max(20, y));
   });
 
-  // Pan controls
+  // Pan (mouse/touch/pen) + two-finger pinch zoom via pointer events
+  const pointers = new Map();
   let isPanning = false;
   let startX = 0, startY = 0;
+  let pinchDist = 0;
 
-  canvasWrapper.addEventListener("mousedown", (e) => {
-    if (e.target === canvasWrapper || e.target.id === "connections-svg" || e.target.id === "canvas-viewport") {
+  canvasWrapper.addEventListener("pointerdown", (e) => {
+    if (!(e.target === canvasWrapper || e.target.id === "connections-svg" || e.target.id === "canvas-viewport")) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1) {
       isPanning = true;
       canvasWrapper.classList.add("is-panning");
       startX = e.clientX - panX;
       startY = e.clientY - panY;
       selectNode(null);
+    } else if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
     }
   });
 
-  document.addEventListener("mousemove", (e) => {
+  document.addEventListener("pointermove", (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchDist) {
+        zoomLevel = Math.min(Math.max(0.4, zoomLevel * (d / pinchDist)), 1.8);
+        updateViewportTransform();
+      }
+      pinchDist = d;
+      return;
+    }
     if (!isPanning) return;
     panX = e.clientX - startX;
     panY = e.clientY - startY;
     updateViewportTransform();
   });
 
-  document.addEventListener("mouseup", () => {
-    if (isPanning) canvasWrapper.classList.remove("is-panning");
-    isPanning = false;
-  });
+  const endPointer = (e) => {
+    if (!pointers.delete(e.pointerId)) return;
+    if (pointers.size === 1) {
+      const [p] = [...pointers.values()];
+      startX = p.x - panX; startY = p.y - panY;
+    }
+    if (pointers.size === 0) {
+      isPanning = false;
+      canvasWrapper.classList.remove("is-panning");
+    }
+  };
+  document.addEventListener("pointerup", endPointer);
+  document.addEventListener("pointercancel", endPointer);
 
   // Zoom controls
   canvasWrapper.addEventListener("wheel", (e) => {
@@ -68,7 +96,7 @@ function initCanvas() {
   if (zoomInBtn) zoomInBtn.onclick = () => { zoomLevel = Math.min(1.8, zoomLevel + 0.1); updateViewportTransform(); };
 
   const zoomOutBtn = document.getElementById("zoom-out-btn");
-  if (zoomOutBtn) zoomOutBtn.onclick = () => { zoomLevel = Math.max(0.5, zoomLevel - 0.1); updateViewportTransform(); };
+  if (zoomOutBtn) zoomOutBtn.onclick = () => { zoomLevel = Math.max(0.4, zoomLevel - 0.1); updateViewportTransform(); };
 
   const resetViewBtn = document.getElementById("reset-view-btn");
   if (resetViewBtn) resetViewBtn.onclick = () => { zoomLevel = 1.0; panX = 0; panY = 0; updateViewportTransform(); };

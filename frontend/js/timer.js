@@ -32,7 +32,7 @@ function displayedTimerValues() {
   const elapsed = timerState.started ? Math.max(0, (performance.now() - timerBaseAt) / 1000) : 0;
   return {
     main: timerState.main_paused ? timerState.main_remaining_seconds : Math.max(0, timerState.main_remaining_seconds - elapsed),
-    level: timerState.level_paused ? timerState.level_remaining_seconds : Math.max(0, timerState.level_remaining_seconds - elapsed)
+    level: (timerState.level_paused || !timerState.level_entered) ? timerState.level_remaining_seconds : Math.max(0, timerState.level_remaining_seconds - elapsed)
   };
 }
 
@@ -43,7 +43,7 @@ function renderSharedTimer() {
   const mainEl = document.getElementById("main-timer-display");
   if (levelEl) levelEl.textContent = formatTimer(Math.ceil(values.level));
   if (mainEl) mainEl.textContent = formatTimer(Math.ceil(values.main));
-  document.querySelector(".timer-box")?.classList.toggle("is-paused", timerState.level_paused);
+  document.querySelector(".timer-box")?.classList.toggle("is-paused", timerState.level_paused || (timerState.started && !timerState.level_entered));
   document.querySelector(".main-timer-box")?.classList.toggle("is-paused", timerState.main_paused);
   const status = document.getElementById("timer-status");
   if (status) status.textContent = !timerState.started ? "Waiting for admin" : timerState.paused ? "Paused" : "Running";
@@ -58,7 +58,7 @@ function applySharedTimerState(nextState) {
   renderSharedTimer();
   // Once the admin has started the timers, begin this participant's countdown for
   // the level they are on (the server records it once per level).
-  if (timerState.started && !timerState.level_entered && currentTimerLevel && !enteringLevel) {
+  if (timerState.started && timerState.level_unlocked && !timerState.level_entered && currentTimerLevel && !enteringLevel) {
     enteringLevel = true;
     setParticipantTimerLevel(currentTimerLevel).finally(() => { enteringLevel = false; });
   }

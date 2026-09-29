@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#7700ff">
   <title>PYLOOM Admin</title>
   <script src="/js/theme.js"></script>
@@ -61,7 +61,7 @@
       <div class="admin-timer-heading">
         <div>
           <h3>Timer control</h3>
-          <p>Start and pause both timers here. Each participant's level timer (Easy 18, Medium 15, Hard 12 min) starts automatically when they enter a level.</p>
+          <p>Start and pause both timers here. Level timers (Easy 20, Medium 15, Hard 10 min) are per participant: Easy starts with the admin start; Medium starts after all Easy questions are attempted, Hard after all Medium questions. Each pauses while the participant is on another level.</p>
         </div>
         <span id="timer-status" class="status-badge status-rejected">Not started</span>
       </div>
@@ -92,6 +92,11 @@
         <button type="button" class="btn btn-secondary" id="release-participant-lock-btn">Release</button>
       </div>
       <div id="participant-lock-message" class="admin-login-error" role="status"></div>
+    </div>
+
+    <div class="admin-timer-actions">
+      <button type="button" class="btn btn-danger" id="reset-questions-btn">Reset questions (clear progress &amp; submissions)</button>
+      <span id="reset-questions-message" class="admin-login-error" role="status"></span>
     </div>
 
     <div class="admin-section-grid">
@@ -130,8 +135,8 @@
       <h3>Live active participants</h3>
       <p style="color:var(--text-dim); margin-top:-4px;">Participants currently logged in with the console open.</p>
       <table class="admin-table">
-        <thead><tr><th>Player ID</th><th>Player name</th><th>College</th><th>Current question</th><th>Last seen</th></tr></thead>
-        <tbody id="online-tbody"><tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr></tbody>
+        <thead><tr><th>Player ID</th><th>Player name</th><th>College</th><th>Current question</th><th>Full screen</th><th>Last seen</th></tr></thead>
+        <tbody id="online-tbody"><tr><td colspan="6" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr></tbody>
       </table>
     </div>
 
@@ -200,6 +205,7 @@
             ? `<button type="button" class="btn btn-primary allow-participant" data-action="allow" data-team-id="${escHtml(p.team_id)}">Activate</button>`
             : `<span class="status-badge ${p.online ? "status-accepted" : "status-rejected"}">${p.online ? "ACTIVE" : "INACTIVE"}</span>
                <button type="button" class="btn btn-secondary allow-participant" data-action="revoke" data-team-id="${escHtml(p.team_id)}">Deactivate</button>`}
+          <button type="button" class="btn btn-danger delete-participant" data-team-id="${escHtml(p.team_id)}">Delete</button>
         </div>`).join("");
       // Only touch the DOM when something changed; rebuilding the list on every poll
       // used to swallow clicks on the button.
@@ -211,6 +217,25 @@
     }
 
     document.getElementById("participant-list").addEventListener("click", async event => {
+      const deleteButton = event.target.closest(".delete-participant");
+      if (deleteButton && !deleteButton.disabled) {
+        const teamId = deleteButton.dataset.teamId;
+        if (!confirm(`Delete participant "${teamId}"? This permanently removes their account and saved progress.`)) return;
+        deleteButton.disabled = true;
+        deleteButton.textContent = "Deleting…";
+        try {
+          const res = await fetch(`/api/admin/participants/${encodeURIComponent(teamId)}`, { method: "DELETE" });
+          const result = await res.json();
+          if (!result.success) throw new Error(result.error || "Failed");
+        } catch (err) {
+          deleteButton.disabled = false;
+          deleteButton.textContent = "Retry delete";
+          return;
+        }
+        pollLive();
+        return;
+      }
+
       const button = event.target.closest(".allow-participant");
       if (!button || button.disabled) return;
       button.disabled = true;
@@ -275,8 +300,9 @@
           <td>${escHtml(p.player_name)}</td>
           <td>${escHtml(p.college)}</td>
           <td>${escHtml(p.mission)}</td>
+          <td><span class="status-badge ${p.fullscreen ? "status-accepted" : "status-rejected"}">${p.fullscreen ? "FULL SCREEN" : "NOT FULL SCREEN"}</span></td>
           <td><span class="status-badge status-accepted">ONLINE</span> ${p.seconds_since_seen}s ago</td>
-        </tr>`).join("") : '<tr><td colspan="5" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr>';
+        </tr>`).join("") : '<tr><td colspan="6" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr>';
     }
 
     // Smooth countdown: the server value is the baseline at each poll and the digits
@@ -379,6 +405,19 @@
     document.getElementById("resume-level-timer-btn").onclick = () => controlTimer("level", "resume");
     document.getElementById("enable-participant-lock-btn").onclick = () => controlParticipantLock("enable");
     document.getElementById("release-participant-lock-btn").onclick = () => controlParticipantLock("release");
+
+    document.getElementById("reset-questions-btn").onclick = async () => {
+      const message = document.getElementById("reset-questions-message");
+      if (!confirm("Reset ALL progress and submissions for every team? This cannot be undone.")) return;
+      try {
+        const response = await fetch("/api/admin/reset-questions", { method: "POST" });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || "Reset failed");
+        message.textContent = "All progress and submissions cleared.";
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    };
 
     document.addEventListener("keydown", event => {
       if (dashboard.hidden || !event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;

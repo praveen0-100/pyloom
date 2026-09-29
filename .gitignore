@@ -4,3 +4,4 @@ __pycache__/
 
 .vercel
 .env*
+backend/data/local_kv_store.json

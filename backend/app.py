@@ -37,8 +37,11 @@ MUTABLE_KEYS = {"participants.json", "progress.json", "submissions.json"}
 ADMIN_USERNAME = "Adminpy"
 ADMIN_PASSWORD = "Admin123"
 
-LEVEL_TIME_LIMITS = {"easy": 18 * 60, "medium": 15 * 60, "hard": 12 * 60}
+LEVEL_TIME_LIMITS = {"easy": 20 * 60, "medium": 15 * 60, "hard": 10 * 60}
 MAIN_TIME_LIMIT = 40 * 60
+# Unlocking a hint already costs the participant 3 event credits, so it no longer also
+# deducts from the question's 0-4 score (that pushed correct answers down to 0).
+HINT_SCORE_PENALTY = 0
 TIMER_KEY = "timer_state"
 LEVEL_ENTRIES_KEY = "level_entries"
 # Timers are started/paused only by the admin. Both the main timer and the level
@@ -96,22 +99,76 @@ def timer_snapshot():
     return _timer_snapshot(_load_timer_state())
 
 
+LEVEL_ORDER = ["easy", "medium", "hard"]
+
+
+def _level_unlocked(team_id, level):
+    """Easy runs from the start. Medium/hard timers only start once every question of the
+    previous level has been attempted (tried, wrong or completed - any recorded attempt)."""
+    idx = LEVEL_ORDER.index(level)
+    if idx == 0:
+        return True
+    previous = LEVEL_ORDER[idx - 1]
+    records = load_json("progress.json").get(team_id, {})
+    prev_ids = [m["id"] for m in load_json("missions.json")
+                if str(m.get("difficulty", "easy")).lower() == previous]
+    return bool(prev_ids) and all(records.get(mid, {}).get("attempts", 0) > 0 for mid in prev_ids)
+
+
+def _team_level_clock(team_id):
+    return kv_get(LEVEL_ENTRIES_KEY, {}).get(team_id, {"used": {}, "active": None, "g0": 0.0})
+
+
 def _level_view(snapshot, team_id, level):
     """The level countdown for `level`.
 
-    Shared timeline: it runs off the admin's single level clock, so every participant
-    on every device sees the same value regardless of when they logged in or entered.
+    Every level has its own timer per participant. It starts when the participant first
+    enters the level (after the admin started the timers), runs only while they are on
+    that level, and is paused - with its time kept - while they are on another one.
+    Time is measured on the admin's level clock, so admin pause/resume applies to all.
     """
     total = LEVEL_TIME_LIMITS[level]
-    remaining = total
-    if snapshot["started"]:
-        remaining = max(0, total - snapshot["level_run_seconds"])
+    clock = _team_level_clock(team_id)
+    used = float(clock["used"].get(level, 0.0))
+    unlocked = _level_unlocked(team_id, level)
+    active = snapshot["started"] and unlocked and clock["active"] == level
+    if active:
+        used += max(0.0, snapshot["level_run_seconds"] - clock["g0"])
     return {
         "level": level,
-        "level_entered": snapshot["started"],
-        "level_remaining_seconds": round(remaining, 2),
+        "level_entered": active,
+        "level_unlocked": unlocked,
+        "level_remaining_seconds": round(max(0, total - used), 2),
         "level_total_seconds": total,
     }
+
+
+def _deactivate_level(team_id, global_seconds):
+    """Pause this participant's running level timer (time already used is kept)."""
+    entries = kv_get(LEVEL_ENTRIES_KEY, {})
+    clock = entries.get(team_id)
+    if not clock or not clock["active"]:
+        return
+    prev = clock["active"]
+    clock["used"][prev] = float(clock["used"].get(prev, 0.0)) + max(0.0, global_seconds - clock["g0"])
+    clock["active"] = None
+    entries[team_id] = clock
+    kv_set(LEVEL_ENTRIES_KEY, entries)
+
+
+def _activate_level(team_id, level, global_seconds):
+    """Make `level` this participant's running level, banking time on the previous one."""
+    entries = kv_get(LEVEL_ENTRIES_KEY, {})
+    clock = entries.get(team_id, {"used": {}, "active": None, "g0": 0.0})
+    if clock["active"] == level:
+        return
+    if clock["active"]:
+        prev = clock["active"]
+        clock["used"][prev] = float(clock["used"].get(prev, 0.0)) + max(0.0, global_seconds - clock["g0"])
+    clock["active"] = level
+    clock["g0"] = global_seconds
+    entries[team_id] = clock
+    kv_set(LEVEL_ENTRIES_KEY, entries)
 
 
 def _participant_timer(team_id, level):
@@ -135,7 +192,14 @@ def enter_timer_level():
     level = str(payload.get("level", "")).lower()
     if not team_id or level not in LEVEL_TIME_LIMITS:
         return jsonify({"success": False, "error": "team_id and a valid level are required"}), 400
-    # Level timer is shared, so entering a level no longer starts a personal clock.
+    snapshot = timer_snapshot()
+    if snapshot["started"]:
+        if _level_unlocked(team_id, level):
+            _activate_level(team_id, level, snapshot["level_run_seconds"])
+        else:
+            # Locked level (previous one not finished): its timer stays paused, and the
+            # level the participant just left stops running too.
+            _deactivate_level(team_id, snapshot["level_run_seconds"])
     return jsonify({"success": True, "timer": _participant_timer(team_id, level)})
 
 
@@ -194,6 +258,20 @@ def control_participant_lock():
     return jsonify({"success": True, "participant_lock_enabled": snapshot["participant_lock_enabled"]})
 
 
+RESET_EPOCH_KEY = "reset_epoch"
+
+
+@app.route("/api/admin/reset-questions", methods=["POST"])
+def reset_questions():
+    """Wipe all progress and submissions so every team restarts every question."""
+    save_json("progress.json", {})
+    save_json("submissions.json", [])
+    # Participants' browsers hold their own completed/trial state; a new epoch tells them to wipe it.
+    kv_set(RESET_EPOCH_KEY, str(time.time()))
+    log_activity("admin", "reset", "Progress and submissions reset")
+    return jsonify({"success": True})
+
+
 ACTIVITY_KEY = "activity_log"
 PRESENCE_KEY = "presence"
 ACTIVITY_LIMIT = 300
@@ -207,12 +285,14 @@ def log_activity(team_id, kind, detail):
     kv_set(ACTIVITY_KEY, log[-ACTIVITY_LIMIT:])
 
 
-def touch_presence(team_id, mission_id=None, active=True):
+def touch_presence(team_id, mission_id=None, active=True, fullscreen=None):
     """Record that a participant is online (heartbeat) and which question they are on."""
     presence = kv_get(PRESENCE_KEY, {})
     entry = presence.get(team_id, {})
     changed_mission = mission_id and entry.get("mission_id") != mission_id
     entry.update({"last_seen": time.time(), "online": active})
+    if fullscreen is not None:
+        entry["fullscreen"] = bool(fullscreen)
     if mission_id:
         entry["mission_id"] = mission_id
     presence[team_id] = entry
@@ -222,6 +302,8 @@ def touch_presence(team_id, mission_id=None, active=True):
 
 @app.route("/api/participant/status/<team_id>", methods=["GET"])
 def participant_status(team_id):
+    if team_id in set(kv_get(DELETED_PARTICIPANTS_KEY, [])):
+        return jsonify({"success": True, "status": "removed"})
     participant = next((p for p in load_json("participants.json") if p.get("team_id") == team_id), None)
     return jsonify({"success": True, "status": participant.get("status", "pending") if participant else "unknown"})
 
@@ -234,12 +316,15 @@ def participant_heartbeat():
         return jsonify({"success": False, "error": "team_id required"}), 400
     mission_id = str(payload.get("mission_id", "")).strip() or None
     participant = next((p for p in load_json("participants.json") if p.get("team_id") == team_id), None)
-    if not participant or participant.get("status") != "active":
+    if not participant:
+        removed = team_id in set(kv_get(DELETED_PARTICIPANTS_KEY, []))
+        return jsonify({"success": False, "error": "Not allowed by admin", "removed": removed}), 403
+    if participant.get("status") != "active":
         return jsonify({"success": False, "error": "Not allowed by admin"}), 403
     # visible=false means the participant switched tab/window: mark them inactive now.
-    if touch_presence(team_id, mission_id, active=bool(payload.get("visible", True))) and payload.get("visible", True):
+    if touch_presence(team_id, mission_id, active=bool(payload.get("visible", True)), fullscreen=payload.get("fullscreen")) and payload.get("visible", True):
         log_activity(team_id, "question", f"Opened question {mission_id}")
-    return jsonify({"success": True})
+    return jsonify({"success": True, "reset_epoch": kv_get(RESET_EPOCH_KEY, "0")})
 
 
 @app.route("/api/participant/logout", methods=["POST"])
@@ -247,6 +332,7 @@ def participant_logout():
     team_id = str((request.get_json() or {}).get("team_id", "")).strip()
     if team_id:
         touch_presence(team_id, active=False)
+        _deactivate_level(team_id, timer_snapshot()["level_run_seconds"])
         log_activity(team_id, "logout", "Left the competition")
     return jsonify({"success": True})
 
@@ -399,6 +485,9 @@ def register_participant():
     if not team_id or not player_name or not college or not year_of_study:
         return jsonify({"success": False, "error": "Player name, ID, college, and year of study are all required"}), 400
 
+    if team_id in set(kv_get(DELETED_PARTICIPANTS_KEY, [])):
+        return jsonify({"success": False, "error": "This participant was removed by the admin.", "removed": True}), 403
+
     participants = load_json("participants.json")
     participant = next((p for p in participants if p.get("team_id") == team_id), None)
     if participant:
@@ -472,7 +561,7 @@ def run_flow():
     payload = request.get_json() or {}
     mission_id = payload.get("mission_id", "mission_01")
     flow = payload.get("flow", {})
-    hint_penalty = 3 if payload.get("hint_used") else 0
+    hint_penalty = HINT_SCORE_PENALTY if payload.get("hint_used") else 0
     team_id = payload.get("team_id", "TEAM_07")
 
     missions = load_json("missions.json")
@@ -551,10 +640,11 @@ def run_flow():
 
     # 4. Calculate Credits
     score_data = score_flow(flow, mission, test_results, graph_valid=True, base_output=base_output, credit_penalty=hint_penalty)
-    completed = score_data["all_passed"]
     all_tests_passed = bool(test_results) and all(t.get("passed") for t in test_results)
+    completed = score_data["all_passed"]
     progress_record = record_progress(
-        team_id, mission_id, "completed" if completed else "tried",
+        # Ran fine but the output/tests are wrong -> "wrong_output" (red chip).
+        team_id, mission_id, "completed" if completed else ("wrong_output" if score_data["attempted"] else "tried"),
         flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"],
         all_tests_passed=all_tests_passed
     )
@@ -631,7 +721,7 @@ def submit_solution():
     team_id = payload.get("team_id", "TEAM_01")
     mission_id = payload.get("mission_id", "mission_01")
     flow = payload.get("flow", {})
-    hint_penalty = 3 if payload.get("hint_used") else 0
+    hint_penalty = HINT_SCORE_PENALTY if payload.get("hint_used") else 0
 
     missions = load_json("missions.json")
     tests_db = load_json("tests.json")
@@ -897,6 +987,38 @@ def revoke_admin_participant(team_id):
     return jsonify({"success": True, "participant": participant})
 
 
+DELETED_PARTICIPANTS_KEY = "deleted_participants"
+
+
+@app.route("/api/admin/participants/<team_id>", methods=["DELETE"])
+def delete_admin_participant(team_id):
+    """Admin-only: permanently remove a participant, their saved progress, and
+    force their participant console to log out. The team_id is tombstoned so
+    the console's own auto-register-on-load call can't silently recreate them.
+    """
+    participants = load_json("participants.json")
+    remaining = [p for p in participants if p.get("team_id") != team_id]
+    if len(remaining) == len(participants):
+        return jsonify({"success": False, "error": "Participant not found"}), 404
+    save_json("participants.json", remaining)
+
+    progress = load_json("progress.json")
+    if team_id in progress:
+        del progress[team_id]
+        save_json("progress.json", progress)
+
+    presence = kv_get(PRESENCE_KEY, {})
+    if team_id in presence:
+        del presence[team_id]
+        kv_set(PRESENCE_KEY, presence)
+
+    deleted = set(kv_get(DELETED_PARTICIPANTS_KEY, []))
+    deleted.add(team_id)
+    kv_set(DELETED_PARTICIPANTS_KEY, list(deleted))
+
+    return jsonify({"success": True})
+
+
 @app.route("/api/admin/participants/<team_id>", methods=["PUT"])
 def update_admin_participant(team_id):
     """Admin-only: edit a participant's profile fields (name, college, year of study)."""
@@ -969,6 +1091,7 @@ def _online_participants(participants, missions):
             "college": p.get("college") or "—",
             "mission": titles.get(entry.get("mission_id"), entry.get("mission_id") or "—"),
             "seconds_since_seen": int(now - entry.get("last_seen", now)),
+            "fullscreen": bool(entry.get("fullscreen")),
         })
     online.sort(key=lambda row: row["team_id"])
     return online
