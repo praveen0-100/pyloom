@@ -37,11 +37,14 @@ function getTeamId() {
 
 // A deleted participant must be kicked out of the console immediately: wipe
 // their locally stored identity/progress and reload so they land back on the
-// registration gate (registering again is rejected server-side - see the
-// "removed" tombstone check in /api/participant/register).
+// registration gate (a background re-register is rejected server-side (see the
+// "removed" tombstone in /api/participant/register) but an explicit login frees the ID).
 function forceParticipantLogout(message) {
   try {
-    localStorage.removeItem(PLAYER_STORAGE_KEY);
+    // Wipe this browser's per-question state too, so the same ID can be used afresh.
+    Object.keys(localStorage)
+      .filter(k => k.startsWith("pyloom-") && k !== "pyloom-color-mode")
+      .forEach(k => localStorage.removeItem(k));
   } catch (err) {
     /* ignore */
   }
@@ -150,6 +153,7 @@ function initParticipantRegistration() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            login: true,
             team_id: player.teamId,
             player_name: player.playerName,
             college: player.college,

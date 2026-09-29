@@ -485,8 +485,15 @@ def register_participant():
     if not team_id or not player_name or not college or not year_of_study:
         return jsonify({"success": False, "error": "Player name, ID, college, and year of study are all required"}), 400
 
-    if team_id in set(kv_get(DELETED_PARTICIPANTS_KEY, [])):
-        return jsonify({"success": False, "error": "This participant was removed by the admin.", "removed": True}), 403
+    deleted = set(kv_get(DELETED_PARTICIPANTS_KEY, []))
+    if team_id in deleted:
+        if not payload.get("login"):
+            # Background re-announce from a console that is still open: keep it kicked out.
+            return jsonify({"success": False, "error": "This participant was removed by the admin.", "removed": True}), 403
+        # An explicit login from the form frees the ID again: it re-registers as a new,
+        # pending participant, so removed names can be reused.
+        deleted.discard(team_id)
+        kv_set(DELETED_PARTICIPANTS_KEY, list(deleted))
 
     participants = load_json("participants.json")
     participant = next((p for p in participants if p.get("team_id") == team_id), None)
