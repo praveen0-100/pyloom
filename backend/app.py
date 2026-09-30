@@ -4,6 +4,7 @@ Serves visual workflow execution APIs, static frontend, and admin dashboard.
 """
 import os
 import sys
+import copy
 import json
 import time
 import uuid
@@ -38,7 +39,7 @@ ADMIN_USERNAME = "Adminpy"
 ADMIN_PASSWORD = "Admin123"
 
 LEVEL_TIME_LIMITS = {"easy": 20 * 60, "medium": 15 * 60, "hard": 10 * 60}
-MAIN_TIME_LIMIT = 40 * 60
+MAIN_TIME_LIMIT = 45 * 60
 # Unlocking a hint already costs the participant 3 event credits, so it no longer also
 # deducts from the question's 0-4 score (that pushed correct answers down to 0).
 HINT_SCORE_PENALTY = 0
@@ -386,14 +387,20 @@ def protect_admin_routes():
 
 MUTABLE_DEFAULTS = {"participants.json": [], "progress.json": {}, "submissions.json": []}
 
+_STATIC_JSON = {}
+
 def load_json(filename):
     if filename in MUTABLE_KEYS:
         return kv_get(filename, MUTABLE_DEFAULTS[filename])
-    path = os.path.join(DATA_DIR, filename)
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return [] if filename.endswith(".json") else {}
+    # missions.json / tests.json never change at runtime: parse them once per process.
+    if filename not in _STATIC_JSON:
+        path = os.path.join(DATA_DIR, filename)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                _STATIC_JSON[filename] = json.load(f)
+        else:
+            _STATIC_JSON[filename] = [] if filename.endswith(".json") else {}
+    return copy.deepcopy(_STATIC_JSON[filename])
 
 def save_json(filename, data):
     if filename in MUTABLE_KEYS:

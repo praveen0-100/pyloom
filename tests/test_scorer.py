@@ -26,7 +26,7 @@ class TestScorer(unittest.TestCase):
         from backend.engine.scorer import test_case_score
         p, f = {"passed": True}, {"passed": False}
         self.assertEqual(test_case_score([p, p, p]), 4)
-        self.assertEqual(test_case_score([p, p, f]), 2)
+        self.assertEqual(test_case_score([p, p, f]), 3)
         self.assertEqual(test_case_score([p, f, f]), 1)
         self.assertEqual(test_case_score([f, f]), 0)
         self.assertEqual(test_case_score([]), 0)

@@ -29,15 +29,16 @@
 
   function getPreference() {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved === "light" || saved === "dark" || saved === "system") return saved;
+      const saved = sessionStorage.getItem(STORAGE_KEY);
+      // Dark is the default everywhere; only a light choice made with the toggle in this session overrides it
+      if (saved === "light") return "light";
     } catch (_) { /* ignore */ }
-    return "system";
+    return "dark";
   }
 
   function setPreference(preference) {
     try {
-      localStorage.setItem(STORAGE_KEY, preference);
+      sessionStorage.setItem(STORAGE_KEY, preference);
     } catch (_) { /* ignore */ }
     apply(resolveMode(preference));
     document.documentElement.setAttribute("data-theme-preference", preference);
@@ -51,10 +52,6 @@
   const initialPref = getPreference();
   document.documentElement.setAttribute("data-theme-preference", initialPref);
   apply(resolveMode(initialPref));
-
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (getPreference() === "system") apply(resolveMode("system"));
-  });
 
   window.PyloomTheme = {
     getPreference,

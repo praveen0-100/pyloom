@@ -51,7 +51,9 @@ def execute_add(val, config=None):
 
 def execute_subtract(val, config=None):
     if isinstance(val, (list, tuple)) and len(val) >= 2:
-        return val[0] - val[1]
+        # Two connected inputs: the difference between them, so the order in which the
+        # participant connected the two blocks does not matter.
+        return abs(val[0] - val[1])
     op = config.get("operand", 0) if config else 0
     try:
         return val - float(op)

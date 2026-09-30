@@ -66,7 +66,7 @@
         <span id="timer-status" class="status-badge status-rejected">Not started</span>
       </div>
       <div class="admin-timer-readouts">
-        <div><span>Main timer</span><strong id="admin-main-timer">40:00</strong><small id="admin-main-status">Running</small></div>
+        <div><span>Main timer</span><strong id="admin-main-timer">45:00</strong><small id="admin-main-status">Running</small></div>
         <div><span>Level timer</span><strong id="admin-level-timer">Per player</strong><small id="admin-level-status">Running</small></div>
       </div>
       <div class="admin-timer-actions">
@@ -75,6 +75,7 @@
         <button type="button" class="btn btn-primary" id="resume-main-timer-btn">Resume main timer</button>
         <button type="button" class="btn btn-secondary" id="pause-level-timer-btn">Pause level timer</button>
         <button type="button" class="btn btn-primary" id="resume-level-timer-btn">Resume level timer</button>
+        <button type="button" class="btn btn-secondary" id="restart-level-timer-btn">Restart level timer</button>
       </div>
       <div id="timer-control-message" class="admin-login-error" role="status"></div>
     </div>
@@ -341,6 +342,7 @@
       document.getElementById("resume-main-timer-btn").disabled = !started || !timer.main_paused;
       document.getElementById("pause-level-timer-btn").disabled = !started || timer.level_paused;
       document.getElementById("resume-level-timer-btn").disabled = !started || !timer.level_paused;
+      document.getElementById("restart-level-timer-btn").disabled = !started;
     }
 
     async function controlTimer(timer, action) {
@@ -403,6 +405,7 @@
     document.getElementById("resume-main-timer-btn").onclick = () => controlTimer("main", "resume");
     document.getElementById("pause-level-timer-btn").onclick = () => controlTimer("level", "pause");
     document.getElementById("resume-level-timer-btn").onclick = () => controlTimer("level", "resume");
+    document.getElementById("restart-level-timer-btn").onclick = () => controlTimer("level", "restart");
     document.getElementById("enable-participant-lock-btn").onclick = () => controlParticipantLock("enable");
     document.getElementById("release-participant-lock-btn").onclick = () => controlParticipantLock("release");
 
@@ -437,7 +440,8 @@
     // submissions, timer) refreshed on a tight interval without multiplying
     // serverless invocations. Polling pauses while the tab isn't visible and
     // catches up immediately when it becomes visible again.
-    const LIVE_POLL_INTERVAL_MS = 1500;
+    const LIVE_POLL_INTERVAL_MS = 1000;
+    const lastLive = {};
     let livePollTimer = null;
     let livePollInFlight = false;
 
@@ -455,9 +459,17 @@
         }
         const data = await res.json();
         if (!data.success) return;
-        renderSummary(data.summary);
-        renderLeaderboard(data.leaderboard);
-        renderSubmissions(data.submissions);
+        // Re-render a section only when its data actually changed, so idle polls do
+        // no DOM work (no flicker, no lost scroll/selection) and stay smooth.
+        const changed = (key, value) => {
+          const serialized = JSON.stringify(value);
+          if (lastLive[key] === serialized) return false;
+          lastLive[key] = serialized;
+          return true;
+        };
+        if (changed("summary", data.summary)) renderSummary(data.summary);
+        if (changed("leaderboard", data.leaderboard)) renderLeaderboard(data.leaderboard);
+        if (changed("submissions", data.submissions)) renderSubmissions(data.submissions);
         renderOnline(data.online_participants || []);
         renderAdminTimer(data.timer);
         renderParticipantPolicy(data.timer);

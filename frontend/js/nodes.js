@@ -2,7 +2,20 @@
  * PYLOOM Node Management Module
  */
 
-function createNode(type, x, y, config = {}) {
+// Some missions pre-fill a block's key field (e.g. Get) so the participant only has to
+// enter the values. Each new block of that type takes the next key not already used.
+function prefilledConfig(type) {
+  const mission = flowState.missions.find(m => m.id === flowState.missionId);
+  const fixed = mission?.prefilled_config?.[type];
+  if (fixed) return { ...fixed };
+  const keys = mission?.prefilled_keys?.[type];
+  if (!keys || !keys.length) return {};
+  const used = flowState.nodes.filter(n => n.type === type).map(n => n.config.key);
+  const key = keys.find(k => !used.includes(k)) ?? keys[keys.length - 1];
+  return { key };
+}
+
+function createNode(type, x, y, config = prefilledConfig(type)) {
   const node = {
     id: "node_" + crypto.randomUUID().slice(0, 8),
     type,
@@ -54,6 +67,33 @@ function renderNodeElement(node) {
   let isDragging = false;
   let dragOffsetX = 0, dragOffsetY = 0;
 
+  // Move/up listeners exist only while a drag is in progress (not one permanent pair
+  // per node), and position updates are batched to one per animation frame.
+  let frame = 0;
+  let pending = null;
+  const applyMove = () => {
+    frame = 0;
+    if (!pending) return;
+    const viewportRect = viewport.getBoundingClientRect();
+    node.x = Math.max(0, (pending.clientX - viewportRect.left) / zoomLevel - dragOffsetX);
+    node.y = Math.max(0, (pending.clientY - viewportRect.top) / zoomLevel - dragOffsetY);
+    pending = null;
+    nodeEl.style.left = `${node.x}px`;
+    nodeEl.style.top = `${node.y}px`;
+    redrawConnections();
+  };
+  const onMove = (e) => {
+    if (!isDragging) return;
+    pending = e;
+    if (!frame) frame = requestAnimationFrame(applyMove);
+  };
+  const onUp = () => {
+    isDragging = false;
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onUp);
+  };
+
   headerEl.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
     e.preventDefault();
@@ -62,20 +102,10 @@ function renderNodeElement(node) {
     dragOffsetX = (e.clientX - viewportRect.left) / zoomLevel - node.x;
     dragOffsetY = (e.clientY - viewportRect.top) / zoomLevel - node.y;
     selectNode(node.id);
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
   });
-
-  document.addEventListener("pointermove", (e) => {
-    if (!isDragging) return;
-    const viewportRect = viewport.getBoundingClientRect();
-    node.x = Math.max(0, (e.clientX - viewportRect.left) / zoomLevel - dragOffsetX);
-    node.y = Math.max(0, (e.clientY - viewportRect.top) / zoomLevel - dragOffsetY);
-    nodeEl.style.left = `${node.x}px`;
-    nodeEl.style.top = `${node.y}px`;
-    redrawConnections();
-  });
-
-  document.addEventListener("pointerup", () => { isDragging = false; });
-  document.addEventListener("pointercancel", () => { isDragging = false; });
 
   // Attach button events
   bindNodeFields(node, nodeEl);

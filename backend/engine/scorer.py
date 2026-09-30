@@ -73,11 +73,11 @@ def _configs_ok(nodes, mission):
 
 
 # Test evaluation: the whole question score, from the visible + hidden test cases.
-TEST_SCORE_ALL, TEST_SCORE_PARTIAL, TEST_SCORE_SINGLE = 4, 2, 1
+TEST_SCORE_ALL, TEST_SCORE_PARTIAL, TEST_SCORE_SINGLE = 4, 3, 1
 
 
 def test_case_score(test_results):
-    """All test cases pass -> 4, several pass -> 2, exactly one passes -> 1, none pass -> 0."""
+    """All test cases pass -> 4, two or more pass (not all) -> 3, exactly one passes -> 1, none pass -> 0."""
     total = len(test_results or [])
     passed = sum(1 for t in test_results or [] if t.get("passed"))
     if not total or not passed:

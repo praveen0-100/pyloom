@@ -15,9 +15,19 @@ start/pause, the participant full-screen lock, participants, progress, ...)
 ever actually stuck between requests.
 """
 import os
+import copy
 import json
 import threading
 import requests
+from requests.adapters import HTTPAdapter
+from flask import g, has_request_context
+
+# One pooled session reuses TCP/TLS connections to Supabase instead of opening a new
+# one for every kv call (each admin/participant poll makes several).
+_session = requests.Session()
+_session.mount("https://", HTTPAdapter(pool_connections=4, pool_maxsize=16))
+
+_MISSING = object()
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
@@ -48,12 +58,40 @@ def _write_local_store(store):
         json.dump(store, f, indent=2)
 
 
+def _memo():
+    """Per-request cache so the same key is fetched only once per API call."""
+    if not has_request_context():
+        return None
+    cache = getattr(g, "_kv_memo", None)
+    if cache is None:
+        cache = g._kv_memo = {}
+    return cache
+
+
 def kv_get(key, default=None):
+    memo = _memo()
+    if memo is not None and key in memo:
+        value = memo[key]
+    else:
+        value = _kv_fetch(key)
+        if memo is not None:
+            memo[key] = value
+    return default if value is _MISSING else copy.deepcopy(value)
+
+
+def kv_set(key, value):
+    memo = _memo()
+    if memo is not None:
+        memo[key] = copy.deepcopy(value)
+    _kv_store(key, value)
+
+
+def _kv_fetch(key):
     if not SUPABASE_URL or not SUPABASE_KEY:
         with _local_lock:
             store = _read_local_store()
-        return store.get(key, default)
-    resp = requests.get(
+        return store.get(key, _MISSING)
+    resp = _session.get(
         f"{SUPABASE_URL}/rest/v1/kv_store",
         headers=_HEADERS,
         params={"key": f"eq.{key}", "select": "value"},
@@ -61,17 +99,17 @@ def kv_get(key, default=None):
     )
     resp.raise_for_status()
     rows = resp.json()
-    return rows[0]["value"] if rows else default
+    return rows[0]["value"] if rows else _MISSING
 
 
-def kv_set(key, value):
+def _kv_store(key, value):
     if not SUPABASE_URL or not SUPABASE_KEY:
         with _local_lock:
             store = _read_local_store()
             store[key] = value
             _write_local_store(store)
         return
-    resp = requests.post(
+    resp = _session.post(
         f"{SUPABASE_URL}/rest/v1/kv_store",
         headers={**_HEADERS, "Prefer": "resolution=merge-duplicates"},
         params={"on_conflict": "key"},

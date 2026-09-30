@@ -42,11 +42,10 @@ SOLUTIONS = {
         {"i": ("Input", {}), "o": ("Output", {"format": FMT_LOCKER})},
         [("i", "o")]),
     "mission_04": flow(
-        {"i": ("Input", {}), "g1": ("Get", {"key": "extra_hours"}), "m1": ("Multiply", {"operand": 25}),
-         "g2": ("Get", {"key": "rating_score"}),
-         "e": ("IfElse", {"op": ">=", "value": "4.5", "then": "2", "otherwise": "1"}),
-         "m2": ("Multiply", {}), "a": ("Add", {"operand": 100}), "o": ("Output", {})},
-        [("i", "g1"), ("g1", "m1"), ("i", "g2"), ("g2", "e"), ("m1", "m2"), ("e", "m2"), ("m2", "a"), ("a", "o")]),
+        {"i": ("Input", {}), "g1": ("Get", {"key": "extra_hours"}), "g2": ("Get", {"key": "rating_score"}),
+         "e": ("IfElse", {"op": ">=", "value": "4.5", "then": "50", "otherwise": "25"}),
+         "m": ("Multiply", {}), "a": ("Add", {"operand": 100}), "o": ("Output", {})},
+        [("i", "g1"), ("i", "g2"), ("g2", "e"), ("g1", "m"), ("e", "m"), ("m", "a"), ("a", "o")]),
     "mission_09": flow(
         {"i": ("Input", {}), "g1": ("Get", {"key": "notebook,pen,pencil_box"}), "s": ("Sum", {}),
          "g2": ("Get", {"key": "budget"}), "d": ("Subtract", {}),

@@ -74,7 +74,7 @@ Then open `http://127.0.0.1:5000/admin` (admin) and `http://127.0.0.1:5000` (par
 
 ### Step 5 - Organiser: run and monitor the round (Admin console)
 - Watch live submissions, the summary, and the leaderboard update in near real time.
-- Use **Pause / Resume / Restart** on the **main timer** (40 min total) and the **level timer** (Easy 18, Medium 15, Hard 12 min). Participants' clocks follow instantly.
+- Use **Pause / Resume / Restart** on the **main timer** (45 min total) and the **level timer** (Easy 20, Medium 15, Hard 10 min). Participants' clocks follow instantly.
 - If a participant breaks the fullscreen lock, the violation and reason show on the dashboard. Click **Release** (or re-enable) to let them continue.
 - Fix mistakes with **Save mapping** (override a participant's progress on a question) or edit the participant's details.
 
@@ -99,7 +99,7 @@ When the main timer reaches 0 it stops automatically. Review the leaderboard for
 | Submit for credits | **Submit solution** button (`POST /api/submit`) - runs visible + hidden tests and scores credits |
 | Resume progress | `GET /api/progress/<team_id>` - saved flow and best credits per question |
 | Change difficulty | Select Easy / Medium / Hard (`POST /api/timer/level`) - resets the level timer (18 / 15 / 12 min) |
-| Poll timer | `GET /api/timer/state` - main timer (40 min) and level timer are synced from the server |
+| Poll timer | `GET /api/timer/state` - main timer (45 min) and level timer are synced from the server |
 
 When the admin enables the **participant lock**, the IDE requires fullscreen and window focus. Losing either is reported (`POST /api/participant/lock-violation`) and shown on the admin dashboard.
 

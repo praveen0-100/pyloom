@@ -172,7 +172,7 @@
       "rating_score": 4.8,
       "extra_hours": 10
     },
-    "operation": "Bonus = (Extra Hours * 25) * multiplier (2.0 if Rating >= 4.5 else 1.0) + 100",
+    "operation": "Bonus = Extra Hours * rate (50 if Rating >= 4.5 else 25) + 100",
     "expected_output": "600.0",
     "difficulty": "medium",
     "required_modules": [
@@ -183,18 +183,25 @@
       "Add",
       "Output"
     ],
+    "prefilled_keys": {
+      "Get": ["extra_hours", "rating_score"]
+    },
+    "prefilled_config": {
+      "IfElse": {"op": ">=", "value": "4.5", "then": "50", "otherwise": "25"},
+      "Add": {"operand": 100}
+    },
     "round": 2,
     "time_limit_minutes": 15,
     "guide": {
       "input": "Drag an Input node and set Input Data to {\"employee_name\": \"Sarah\", \"rating_score\": 4.8, \"extra_hours\": 10}.",
       "mapping": [
-        "Branch 1 (base bonus): Input → Get (Key = extra_hours) → Multiply (Operand = 25).",
-        "Branch 2 (rating multiplier): Input → Get (Key = rating_score) → IfElse (Operator = >=, Value = 4.5, Then = 2, Otherwise = 1).",
-        "Merge: connect Multiply (branch 1) → a second Multiply node, then IfElse → the same second Multiply (it multiplies base bonus × multiplier; leave its Operand alone).",
-        "Second Multiply → Add: Operand = 100 (attendance allowance).",
-        "Add → Output."
-      ],
-      "output": "Leave the Output format empty. Run Flow must show 600.0."
+   "Branch 1 (hours): Input → Get (Key = extra_hours, already filled in for the first Get).",
+   "Branch 2 (hourly rate): Input → Get (Key = rating_score, already filled in for the second Get) → IfElse (already filled in: Operator = >=, Value = 4.5, Then = 50, Otherwise = 25). The rate is $25 per hour, doubled to $50 when Rating >= 4.5.",
+   "Merge: connect the first Get (extra_hours) → Multiply AND IfElse → the same Multiply. Leave the Multiply operand empty; it multiplies hours × rate.",
+   "Multiply → Add (Operand 100 is already filled in: attendance allowance).",
+   "Add → Output."
+  ],
+  "output": "Leave the Output format empty. Run Flow must show 600.0."
     }
   },
   {
@@ -217,17 +224,23 @@
       "Subtract",
       "Output"
     ],
+    "prefilled_keys": {
+      "Get": ["notebook,pen,pencil_box", "budget"]
+    },
+    "prefilled_config": {
+      "Output": {"format": "Budget exceeded by {value}"}
+    },
     "round": 2,
     "time_limit_minutes": 15,
     "guide": {
       "input": "Drag an Input node and set Input Data to {\"budget\": 200, \"notebook\": 80, \"pen\": 30, \"pencil_box\": 100}.",
       "mapping": [
-        "Input → Get #1: Key = notebook,pen,pencil_box (comma-separated, no spaces) → Sum (total bill = 210).",
-        "Input → Get #2: Key = budget.",
-        "Subtract inputs, in this order: connect Sum → Subtract FIRST, then Get #2 (budget) → Subtract SECOND (210 − 200 = 10).",
+        "Input → Get #1 (Key notebook,pen,pencil_box is already filled in) → Sum (total bill = 210).",
+        "Input → Get #2 (Key budget is already filled in).",
+        "Connect Sum → Subtract and Get #2 (budget) → Subtract, in either order. Subtract gives the difference (210 and 200 → 10).",
         "Subtract → Output."
       ],
-      "output": "Set the Output format to Budget exceeded by {value}. Run Flow must show Budget exceeded by 10."
+      "output": "The Output format (Budget exceeded by {value}) is already filled in. Run Flow must show Budget exceeded by 10."
     }
   },
   {
