@@ -509,10 +509,22 @@ function startParticipantHeartbeat() {
         return;
       }
       applyAdminReset(result.reset_epoch);
+      // Violations are per participant: the server tells only the offender to stay locked,
+      // and clears it for them when the admin releases or re-enables.
+      if (result.forced_lock !== undefined && Boolean(result.forced_lock) !== forcedLockEnabled) {
+        forcedLockEnabled = Boolean(result.forced_lock);
+        handleParticipantLockChange(globalLockEnabled, participantLockViolation);
+      }
+      if (result.violation !== undefined && Boolean(result.violation) !== participantLockViolation) {
+        // Ignore a "no violation" answer that raced our own just-sent report.
+        if (!result.violation && Date.now() - violationReportedAt < 4000) return;
+        if (!result.violation) violationReported = false;
+        handleParticipantLockChange(globalLockEnabled, Boolean(result.violation));
+      }
     }).catch(() => {});
   };
-  beat();
-  setInterval(beat, 5000);
+  // Staggered start + 8s cadence so a room of participants doesn't hit the server in lock-step.
+  setTimeout(() => { beat(); setInterval(beat, 8000); }, Math.random() * 2000);
   // Report full screen entered/left straight away so the admin sees it live.
   document.addEventListener("fullscreenchange", beat);
   document.addEventListener("visibilitychange", beat);
@@ -570,8 +582,13 @@ function updateParticipantLockOverlay() {
   overlay.hidden = !needsFullscreen;
 }
 
+// Full screen is required when the admin locked everyone or singled out this participant.
+let globalLockEnabled = false;
+let forcedLockEnabled = false;
+
 function handleParticipantLockChange(enabled, violation = false) {
-  participantLockEnabled = Boolean(enabled);
+  globalLockEnabled = Boolean(enabled);
+  participantLockEnabled = globalLockEnabled || forcedLockEnabled;
   participantLockViolation = Boolean(violation);
   if (!participantLockEnabled) violationReported = false;
   document.body.classList.toggle("participant-lock-active", participantLockEnabled);
@@ -584,6 +601,7 @@ function handleParticipantLockChange(enabled, violation = false) {
 
 let participantLockViolation = false;
 let violationReported = false;
+let violationReportedAt = 0;
 let fullscreenTransitionUntil = 0;
 
 function monitorParticipantActivity() {
@@ -592,6 +610,7 @@ function monitorParticipantActivity() {
   const activityChanged = document.visibilityState === "hidden" || !document.fullscreenElement;
   if (!activityChanged || violationReported) return;
   violationReported = true;
+  violationReportedAt = Date.now();
   participantLockViolation = true;
   updateParticipantLockOverlay();
   fetch("/api/participant/lock-violation", {
@@ -727,6 +746,8 @@ async function loadMissionData(missionId) {
     document.getElementById("mission-input").textContent = formatMissionValue(res.mission.input);
     document.getElementById("mission-operation").textContent = res.mission.operation || "—";
     document.getElementById("mission-expected").textContent = formatMissionValue(res.mission.expected_output);
+    // Chart questions show the expected output as a picture instead of describing it in text.
+    document.getElementById("mission-expected").hidden = Boolean(res.mission.expected_output_is_image && res.mission.image);
     const referenceImage = document.getElementById("mission-reference-image");
     if (referenceImage) {
       referenceImage.hidden = !res.mission.image;

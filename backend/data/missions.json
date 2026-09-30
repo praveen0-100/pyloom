@@ -292,7 +292,8 @@
     },
     "operation": "Plot attendance per day as a line chart",
     "expected_output": "Line chart titled 'Weekly Attendance' with days on the X-axis and students present on the Y-axis",
-    "image": "/assets/graph.jpeg",
+    "image": "/assets/weekly_attendance.png",
+    "expected_output_is_image": true,
     "difficulty": "hard",
     "required_modules": [
       "Input",

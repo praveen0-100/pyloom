@@ -26,3 +26,7 @@ create trigger kv_store_updated_at
 -- RLS entirely, so RLS stays enabled with no public policies (the table is
 -- unreachable via the anon/publishable key).
 alter table public.kv_store enable row level security;
+
+-- Per-item rows ("presence:TEAM_01", "progress:TEAM_01", ...) are read by key prefix;
+-- this index keeps those prefix lookups fast. Safe to run more than once.
+create index if not exists kv_store_key_prefix_idx on public.kv_store (key text_pattern_ops);

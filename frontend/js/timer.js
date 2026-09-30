@@ -101,7 +101,7 @@ async function initializeSharedTimer(level, levelExpired, mainExpired, participa
   // visible again.
   timerStream = setInterval(() => {
     if (document.visibilityState === "visible") pollTimer();
-  }, 1000);
+  }, 2000 + Math.floor(Math.random() * 400));
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") pollTimer();
   });

@@ -136,8 +136,8 @@
       <h3>Live active participants</h3>
       <p style="color:var(--text-dim); margin-top:-4px;">Participants currently logged in with the console open.</p>
       <table class="admin-table">
-        <thead><tr><th>Player ID</th><th>Player name</th><th>College</th><th>Current question</th><th>Full screen</th><th>Last seen</th></tr></thead>
-        <tbody id="online-tbody"><tr><td colspan="6" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr></tbody>
+        <thead><tr><th>Player ID</th><th>Player name</th><th>College</th><th>Current question</th><th>Full screen</th><th>Last seen</th><th>Actions</th></tr></thead>
+        <tbody id="online-tbody"><tr><td colspan="7" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr></tbody>
       </table>
     </div>
 
@@ -156,7 +156,7 @@
           </tr>
         </thead>
         <tbody id="leaderboard-tbody">
-          <tr><td colspan="6" style="color:var(--text-dim); text-align:center;">Loading leaderboard…</td></tr>
+          <tr><td colspan="7" style="color:var(--text-dim); text-align:center;">Loading leaderboard…</td></tr>
         </tbody>
       </table>
     </div>
@@ -257,7 +257,7 @@
     function renderLeaderboard(leaderboard) {
       const tbody = document.getElementById("leaderboard-tbody");
       if (!leaderboard.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim); text-align:center;">No participants yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-dim); text-align:center;">No participants yet.</td></tr>';
         return;
       }
       const esc = value => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -295,7 +295,7 @@
     function renderOnline(online) {
       document.getElementById("stat-online").textContent = online.length;
       const tbody = document.getElementById("online-tbody");
-      tbody.innerHTML = online.length ? online.map(p => `
+      const html = online.length ? online.map(p => `
         <tr>
           <td class="cell-team">${escHtml(p.team_id)}</td>
           <td>${escHtml(p.player_name)}</td>
@@ -303,8 +303,37 @@
           <td>${escHtml(p.mission)}</td>
           <td><span class="status-badge ${p.fullscreen ? "status-accepted" : "status-rejected"}">${p.fullscreen ? "FULL SCREEN" : "NOT FULL SCREEN"}</span></td>
           <td><span class="status-badge status-accepted">ONLINE</span> ${p.seconds_since_seen}s ago</td>
-        </tr>`).join("") : '<tr><td colspan="6" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr>';
+          <td class="cell-actions">
+            <button type="button" class="btn btn-secondary online-fullscreen" data-team-id="${escHtml(p.team_id)}" data-action="${p.forced_fullscreen ? "release" : "enable"}">${p.forced_fullscreen ? "Release full screen" : "Full screen"}</button>
+            <button type="button" class="btn btn-danger online-terminate" data-team-id="${escHtml(p.team_id)}">Terminate</button>
+          </td>
+        </tr>`).join("") : '<tr><td colspan="7" style="color:var(--text-dim); text-align:center;">No participants online.</td></tr>';
+      // Rebuilding identical markup on every poll would swallow clicks on the row buttons.
+      if (tbody.dataset.html === html) return;
+      tbody.dataset.html = html;
+      tbody.innerHTML = html;
     }
+
+    document.getElementById("online-tbody").addEventListener("click", async event => {
+      const fsButton = event.target.closest(".online-fullscreen");
+      const killButton = event.target.closest(".online-terminate");
+      const button = fsButton || killButton;
+      if (!button || button.disabled) return;
+      const teamId = button.dataset.teamId;
+      const url = `/api/admin/participants/${encodeURIComponent(teamId)}`;
+      if (killButton && !confirm(`Terminate "${teamId}"? They will be eliminated and logged out.`)) return;
+      button.disabled = true;
+      try {
+        const res = killButton
+          ? await fetch(url, { method: "DELETE" })
+          : await fetch(`${url}/fullscreen`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: button.dataset.action }) });
+        const result = await res.json();
+        if (!result.success) throw new Error(result.error || "Failed");
+      } catch (err) {
+        document.getElementById("participant-lock-message").textContent = err.message;
+      }
+      pollLive();
+    });
 
     // Smooth countdown: the server value is the baseline at each poll and the digits
     // are advanced from the local clock in between, so they never jump or stall.
@@ -440,7 +469,7 @@
     // submissions, timer) refreshed on a tight interval without multiplying
     // serverless invocations. Polling pauses while the tab isn't visible and
     // catches up immediately when it becomes visible again.
-    const LIVE_POLL_INTERVAL_MS = 1000;
+    const LIVE_POLL_INTERVAL_MS = 2000;
     const lastLive = {};
     let livePollTimer = null;
     let livePollInFlight = false;

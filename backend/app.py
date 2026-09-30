@@ -18,11 +18,163 @@ from flask_cors import CORS
 from backend.engine.validator import validate_flow
 from backend.engine.executor import execute_flow
 from backend.engine.scorer import score_flow, outputs_match
-from backend.db import kv_get, kv_set
+from flask import g, has_request_context
+from backend import db as _db
+from backend.db import kv_get as _raw_kv_get, kv_set as _raw_kv_set
+
+# ---------------------------------------------------------------------------
+# Sharded state. Tables that many participants write at once are stored one row
+# per item (see db.kv_scan) instead of one JSON blob per table. A save only writes
+# the items THIS request changed, so simultaneous requests from different
+# participants never overwrite each other. kv_get/kv_set below route these keys
+# transparently, so the rest of the app keeps using the same calls.
+# name -> (row prefix, shape, id field)   shapes: list of records | dict | set of ids
+# ---------------------------------------------------------------------------
+SHARDS = {
+    "participants.json": ("participants:", "list", "team_id"),
+    "progress.json": ("progress:", "dict", None),
+    "submissions.json": ("submissions:", "list", "_id"),
+    "presence": ("presence:", "dict", None),
+    "participant_violations": ("violation:", "dict", None),
+    "level_entries": ("levelentry:", "dict", None),
+    "forced_fullscreen": ("forcedfs:", "set", None),
+    "deleted_participants": ("deleted:", "set", None),
+}
+_MISSING = object()
+_migrated = False
+
+
+def _shard_memo():
+    if not has_request_context():
+        return None
+    memo = getattr(g, "_shard_memo", None)
+    if memo is None:
+        memo = g._shard_memo = {}
+    return memo
+
+
+def _shard_snapshot(name):
+    """{id: value} for the whole shard, cached for the rest of this request."""
+    memo = _shard_memo()
+    if memo is not None and name in memo:
+        return memo[name]
+    prefix = SHARDS[name][0]
+    items = {k[len(prefix):]: v for k, v in _db.kv_scan(prefix).items()}
+    if memo is not None:
+        memo[name] = items
+    return items
+
+
+def _shard_view(name, items):
+    shape = SHARDS[name][1]
+    if shape == "list":
+        return sorted(copy.deepcopy(list(items.values())), key=lambda r: r.get("_ts", 0))
+    if shape == "set":
+        return sorted(items)
+    return copy.deepcopy(items)
+
+
+def _shard_items_from(name, data):
+    _, shape, id_field = SHARDS[name]
+    if shape == "list":
+        new = {}
+        for i, rec in enumerate(data or []):
+            rec = dict(rec)
+            rid = str(rec.get(id_field) or "")
+            if not rid:
+                rid = f"{time.time_ns():020d}-{uuid.uuid4().hex[:6]}"
+                if id_field == "_id":
+                    rec["_id"] = rid
+            rec.setdefault("_ts", time.time())
+            new[rid] = rec
+        return new
+    if shape == "set":
+        return {str(i): True for i in data or []}
+    return {str(k): v for k, v in dict(data or {}).items()}
+
+
+def shard_read(name):
+    return _shard_view(name, _shard_snapshot(name))
+
+
+def shard_write(name, data):
+    """Persist `data` for the shard, writing only the items that changed since it was read."""
+    prefix = SHARDS[name][0]
+    old = _shard_snapshot(name)
+    new = _shard_items_from(name, data)
+    _db.kv_write_many({prefix + k: v for k, v in new.items() if old.get(k, _MISSING) != v})
+    _db.kv_delete_many([prefix + k for k in old if k not in new])
+    memo = _shard_memo()
+    if memo is not None:
+        memo[name] = copy.deepcopy(new)
+
+
+def shard_items(name, ids):
+    """Just these items ({id: value}), fetched in one round trip."""
+    prefix = SHARDS[name][0]
+    memo = _shard_memo()
+    if memo is not None and name in memo:
+        return {i: copy.deepcopy(memo[name][i]) for i in ids if i in memo[name]}
+    rows = _db.kv_get_many([prefix + i for i in ids])
+    return {k[len(prefix):]: v for k, v in rows.items()}
+
+
+def shard_item(name, item_id, default=None):
+    return shard_items(name, [item_id]).get(item_id, default)
+
+
+def shard_put(name, item_id, value):
+    """Write one item without reading or touching any other row in the shard."""
+    _db.kv_write_many({SHARDS[name][0] + item_id: value})
+    memo = _shard_memo()
+    if memo is not None and name in memo:
+        memo[name][item_id] = copy.deepcopy(value)
+
+
+def shard_drop(name, item_id):
+    _db.kv_delete_many([SHARDS[name][0] + item_id])
+    memo = _shard_memo()
+    if memo is not None and name in memo:
+        memo[name].pop(item_id, None)
+
+
+def _migrate_to_shards():
+    """One-off: split the old single-blob tables into per-item rows (idempotent)."""
+    if _raw_kv_get("sharding_v2", None):
+        return
+    for name in ("participants.json", "progress.json", "submissions.json", "level_entries"):
+        legacy = _raw_kv_get(name, None)
+        if not legacy or _db.kv_scan(SHARDS[name][0]):
+            continue
+        if SHARDS[name][1] == "list":
+            legacy = [{**rec, "_ts": i} for i, rec in enumerate(legacy)]
+        items = _shard_items_from(name, legacy)
+        _db.kv_write_many({SHARDS[name][0] + k: v for k, v in items.items()})
+    _raw_kv_set("sharding_v2", True)
+
+
+
+def kv_get(key, default=None):
+    if key in SHARDS:
+        return shard_read(key)
+    return _raw_kv_get(key, default)
+
+
+def kv_set(key, value):
+    if key in SHARDS:
+        return shard_write(key, value)
+    return _raw_kv_set(key, value)
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
 app.secret_key = os.environ.get("PYLOOM_ADMIN_SESSION_SECRET", "pyloom-admin-session-secret")
+
+@app.before_request
+def _ensure_migrated():
+    global _migrated
+    if not _migrated and request.path.startswith("/api/"):
+        _migrate_to_shards()
+        _migrated = True
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # missions.json / tests.json ship with the app and never change at runtime, so
@@ -62,8 +214,18 @@ DEFAULT_TIMER_STATE = {
 }
 
 
-def _load_timer_state():
-    return {**DEFAULT_TIMER_STATE, **kv_get(TIMER_KEY, {})}
+_timer_cache = {"at": 0.0, "value": None}
+TIMER_CACHE_SECONDS = 1.0
+
+
+def _load_timer_state(cached=False):
+    """Timer state. Participant polls pass cached=True so dozens of consoles polling each
+    second share one database read per serverless instance; admin edits always read fresh."""
+    if cached and time.time() - _timer_cache["at"] < TIMER_CACHE_SECONDS and _timer_cache["value"] is not None:
+        return copy.deepcopy(_timer_cache["value"])
+    state = {**DEFAULT_TIMER_STATE, **kv_get(TIMER_KEY, {})}
+    _timer_cache.update(at=time.time(), value=copy.deepcopy(state))
+    return state
 
 
 def _timer_snapshot(timer_state):
@@ -97,7 +259,7 @@ def timer_snapshot():
     # Read-only: computed on a copy and never written back. Participant and admin
     # consoles poll this every second; if each poll saved its (stale) copy it could
     # overwrite an admin pause/resume made a moment earlier.
-    return _timer_snapshot(_load_timer_state())
+    return _timer_snapshot(_load_timer_state(cached=True))
 
 
 LEVEL_ORDER = ["easy", "medium", "hard"]
@@ -110,14 +272,14 @@ def _level_unlocked(team_id, level):
     if idx == 0:
         return True
     previous = LEVEL_ORDER[idx - 1]
-    records = load_json("progress.json").get(team_id, {})
+    records = shard_item("progress.json", team_id, {})
     prev_ids = [m["id"] for m in load_json("missions.json")
                 if str(m.get("difficulty", "easy")).lower() == previous]
     return bool(prev_ids) and all(records.get(mid, {}).get("attempts", 0) > 0 for mid in prev_ids)
 
 
 def _team_level_clock(team_id):
-    return kv_get(LEVEL_ENTRIES_KEY, {}).get(team_id, {"used": {}, "active": None, "g0": 0.0})
+    return shard_item(LEVEL_ENTRIES_KEY, team_id, {"used": {}, "active": None, "g0": 0.0})
 
 
 def _level_view(snapshot, team_id, level):
@@ -146,21 +308,18 @@ def _level_view(snapshot, team_id, level):
 
 def _deactivate_level(team_id, global_seconds):
     """Pause this participant's running level timer (time already used is kept)."""
-    entries = kv_get(LEVEL_ENTRIES_KEY, {})
-    clock = entries.get(team_id)
+    clock = shard_item(LEVEL_ENTRIES_KEY, team_id)
     if not clock or not clock["active"]:
         return
     prev = clock["active"]
     clock["used"][prev] = float(clock["used"].get(prev, 0.0)) + max(0.0, global_seconds - clock["g0"])
     clock["active"] = None
-    entries[team_id] = clock
-    kv_set(LEVEL_ENTRIES_KEY, entries)
+    shard_put(LEVEL_ENTRIES_KEY, team_id, clock)
 
 
 def _activate_level(team_id, level, global_seconds):
     """Make `level` this participant's running level, banking time on the previous one."""
-    entries = kv_get(LEVEL_ENTRIES_KEY, {})
-    clock = entries.get(team_id, {"used": {}, "active": None, "g0": 0.0})
+    clock = shard_item(LEVEL_ENTRIES_KEY, team_id, {"used": {}, "active": None, "g0": 0.0})
     if clock["active"] == level:
         return
     if clock["active"]:
@@ -168,8 +327,7 @@ def _activate_level(team_id, level, global_seconds):
         clock["used"][prev] = float(clock["used"].get(prev, 0.0)) + max(0.0, global_seconds - clock["g0"])
     clock["active"] = level
     clock["g0"] = global_seconds
-    entries[team_id] = clock
-    kv_set(LEVEL_ENTRIES_KEY, entries)
+    shard_put(LEVEL_ENTRIES_KEY, team_id, clock)
 
 
 def _participant_timer(team_id, level):
@@ -241,7 +399,22 @@ def control_timer():
     timer_state["last_tick"] = time.time()
     snapshot = _timer_snapshot(timer_state)
     kv_set(TIMER_KEY, timer_state)
+    _timer_cache["at"] = 0.0
     return jsonify({"success": True, "timer": snapshot})
+
+
+@app.route("/api/admin/participants/<team_id>/fullscreen", methods=["POST"])
+def control_single_participant_fullscreen(team_id):
+    """Require (or stop requiring) full screen for one participant, independent of everyone else."""
+    action = str((request.get_json() or {}).get("action", "")).lower()
+    if action not in {"enable", "release"}:
+        return jsonify({"success": False, "error": "Action must be enable or release"}), 400
+    if action == "enable":
+        shard_put(FORCED_FULLSCREEN_KEY, team_id, True)
+    else:
+        shard_drop(FORCED_FULLSCREEN_KEY, team_id)
+    shard_drop(VIOLATIONS_KEY, team_id)
+    return jsonify({"success": True, "forced": action == "enable"})
 
 
 @app.route("/api/admin/participant-control", methods=["POST"])
@@ -254,8 +427,10 @@ def control_participant_lock():
     timer_state["participant_lock_enabled"] = action == "enable"
     timer_state["participant_violation"] = False
     timer_state["participant_violation_reason"] = ""
+    kv_set(VIOLATIONS_KEY, {})
     snapshot = _timer_snapshot(timer_state)
     kv_set(TIMER_KEY, timer_state)
+    _timer_cache["at"] = 0.0
     return jsonify({"success": True, "participant_lock_enabled": snapshot["participant_lock_enabled"]})
 
 
@@ -275,37 +450,39 @@ def reset_questions():
 
 ACTIVITY_KEY = "activity_log"
 PRESENCE_KEY = "presence"
+VIOLATIONS_KEY = "participant_violations"
+FORCED_FULLSCREEN_KEY = "forced_fullscreen"  # team_ids the admin individually put in full-screen mode
 ACTIVITY_LIMIT = 300
-PRESENCE_TTL_SECONDS = 15
+PRESENCE_TTL_SECONDS = 25  # ~3 missed heartbeats before someone shows offline
 
 
 def log_activity(team_id, kind, detail):
     """Append one participant/admin event to the shared activity feed (newest last)."""
-    log = kv_get(ACTIVITY_KEY, [])
-    log.append({"time": time.time(), "team_id": team_id, "kind": kind, "detail": detail})
-    kv_set(ACTIVITY_KEY, log[-ACTIVITY_LIMIT:])
+    now = time.time()
+    _db.kv_write_many({f"activity:{time.time_ns():020d}-{uuid.uuid4().hex[:4]}":
+                       {"time": now, "team_id": team_id, "kind": kind, "detail": detail}})
 
 
-def touch_presence(team_id, mission_id=None, active=True, fullscreen=None):
+def touch_presence(team_id, mission_id=None, active=True, fullscreen=None, entry=None):
     """Record that a participant is online (heartbeat) and which question they are on."""
-    presence = kv_get(PRESENCE_KEY, {})
-    entry = presence.get(team_id, {})
+    if entry is None:
+        entry = shard_item(PRESENCE_KEY, team_id, {})
     changed_mission = mission_id and entry.get("mission_id") != mission_id
     entry.update({"last_seen": time.time(), "online": active})
     if fullscreen is not None:
         entry["fullscreen"] = bool(fullscreen)
     if mission_id:
         entry["mission_id"] = mission_id
-    presence[team_id] = entry
-    kv_set(PRESENCE_KEY, presence)
+    shard_put(PRESENCE_KEY, team_id, entry)
     return changed_mission
 
 
 @app.route("/api/participant/status/<team_id>", methods=["GET"])
 def participant_status(team_id):
-    if team_id in set(kv_get(DELETED_PARTICIPANTS_KEY, [])):
+    found = shard_items("participants.json", [team_id])
+    if shard_item(DELETED_PARTICIPANTS_KEY, team_id):
         return jsonify({"success": True, "status": "removed"})
-    participant = next((p for p in load_json("participants.json") if p.get("team_id") == team_id), None)
+    participant = found.get(team_id)
     return jsonify({"success": True, "status": participant.get("status", "pending") if participant else "unknown"})
 
 
@@ -316,16 +493,27 @@ def participant_heartbeat():
     if not team_id:
         return jsonify({"success": False, "error": "team_id required"}), 400
     mission_id = str(payload.get("mission_id", "")).strip() or None
-    participant = next((p for p in load_json("participants.json") if p.get("team_id") == team_id), None)
+    # Everything this heartbeat needs comes back in ONE round trip to the database.
+    keys = {name: SHARDS[name][0] + team_id for name in
+            ("participants.json", DELETED_PARTICIPANTS_KEY, PRESENCE_KEY, VIOLATIONS_KEY, FORCED_FULLSCREEN_KEY)}
+    rows = _db.kv_get_many(list(keys.values()) + [RESET_EPOCH_KEY])
+    participant = rows.get(keys["participants.json"])
     if not participant:
-        removed = team_id in set(kv_get(DELETED_PARTICIPANTS_KEY, []))
+        removed = keys[DELETED_PARTICIPANTS_KEY] in rows
         return jsonify({"success": False, "error": "Not allowed by admin", "removed": removed}), 403
     if participant.get("status") != "active":
         return jsonify({"success": False, "error": "Not allowed by admin"}), 403
     # visible=false means the participant switched tab/window: mark them inactive now.
-    if touch_presence(team_id, mission_id, active=bool(payload.get("visible", True)), fullscreen=payload.get("fullscreen")) and payload.get("visible", True):
+    visible = bool(payload.get("visible", True))
+    if touch_presence(team_id, mission_id, active=visible, fullscreen=payload.get("fullscreen"),
+                      entry=rows.get(keys[PRESENCE_KEY], {})) and visible:
         log_activity(team_id, "question", f"Opened question {mission_id}")
-    return jsonify({"success": True, "reset_epoch": kv_get(RESET_EPOCH_KEY, "0")})
+    return jsonify({
+        "success": True,
+        "reset_epoch": rows.get(RESET_EPOCH_KEY, "0"),
+        "violation": keys[VIOLATIONS_KEY] in rows,
+        "forced_lock": keys[FORCED_FULLSCREEN_KEY] in rows,
+    })
 
 
 @app.route("/api/participant/logout", methods=["POST"])
@@ -342,14 +530,15 @@ def participant_logout():
 def report_participant_lock_violation():
     body = request.get_json() or {}
     reason = str(body.get("reason", "Fullscreen or focus was lost"))[:160]
-    timer_state = _load_timer_state()
-    if timer_state["participant_lock_enabled"]:
-        log_activity(str(body.get("team_id", "")).strip() or "UNKNOWN", "violation", reason)
-        timer_state["participant_violation"] = True
-        timer_state["participant_violation_reason"] = reason
-    snapshot = _timer_snapshot(timer_state)
-    kv_set(TIMER_KEY, timer_state)
-    return jsonify({"success": True, "participant_violation": snapshot["participant_violation"]})
+    team_id = str(body.get("team_id", "")).strip() or "UNKNOWN"
+    recorded = False
+    # A violation locks only the participant who caused it; everyone else is unaffected.
+    if _load_timer_state()["participant_lock_enabled"] or shard_item(FORCED_FULLSCREEN_KEY, team_id):
+        if not shard_item(VIOLATIONS_KEY, team_id):
+            log_activity(team_id, "violation", reason)
+        shard_put(VIOLATIONS_KEY, team_id, reason)
+        recorded = True
+    return jsonify({"success": True, "participant_violation": recorded})
 
 
 ADMIN_LOCK_KEY = "admin_lock"
@@ -412,8 +601,7 @@ def save_json(filename, data):
 
 
 def record_progress(team_id, mission_id, status, flow=None, scoring=None, total_credits=None, all_tests_passed=None):
-    progress = load_json("progress.json")
-    participant = progress.setdefault(team_id, {})
+    participant = shard_item("progress.json", team_id, {})
     current = participant.get(mission_id, {})
     current["attempts"] = current.get("attempts", 0) + 1
     if flow is not None:
@@ -433,7 +621,7 @@ def record_progress(team_id, mission_id, status, flow=None, scoring=None, total_
     if current.get("status") != "completed" or status == "completed":
         current["status"] = status
     participant[mission_id] = current
-    save_json("progress.json", progress)
+    shard_put("progress.json", team_id, participant)
     log_activity(team_id, "run", f"Ran {mission_id}: {status.replace('_', ' ')}, {total_credits if total_credits is not None else 0} credits")
     return current
 
@@ -492,18 +680,16 @@ def register_participant():
     if not team_id or not player_name or not college or not year_of_study:
         return jsonify({"success": False, "error": "Player name, ID, college, and year of study are all required"}), 400
 
-    deleted = set(kv_get(DELETED_PARTICIPANTS_KEY, []))
-    if team_id in deleted:
+    rows = _db.kv_get_many([SHARDS["participants.json"][0] + team_id, SHARDS[DELETED_PARTICIPANTS_KEY][0] + team_id])
+    if rows.get(SHARDS[DELETED_PARTICIPANTS_KEY][0] + team_id):
         if not payload.get("login"):
             # Background re-announce from a console that is still open: keep it kicked out.
             return jsonify({"success": False, "error": "This participant was removed by the admin.", "removed": True}), 403
         # An explicit login from the form frees the ID again: it re-registers as a new,
         # pending participant, so removed names can be reused.
-        deleted.discard(team_id)
-        kv_set(DELETED_PARTICIPANTS_KEY, list(deleted))
+        shard_drop(DELETED_PARTICIPANTS_KEY, team_id)
 
-    participants = load_json("participants.json")
-    participant = next((p for p in participants if p.get("team_id") == team_id), None)
+    participant = rows.get(SHARDS["participants.json"][0] + team_id)
     if participant:
         participant["player_name"] = player_name
         participant["college"] = college
@@ -517,8 +703,8 @@ def register_participant():
             "year_of_study": year_of_study,
             "status": "pending",
         }
-        participants.append(participant)
-    save_json("participants.json", participants)
+        participant["_ts"] = time.time()
+    shard_put("participants.json", team_id, participant)
     log_activity(team_id, "login", f"{player_name} logged in")
     return jsonify({"success": True, "participant": participant})
 
@@ -702,8 +888,7 @@ def participant_score(team_id):
 
 @app.route("/api/progress/<team_id>", methods=["GET"])
 def get_progress(team_id):
-    progress = load_json("progress.json")
-    return jsonify({"success": True, "progress": progress.get(team_id, {})})
+    return jsonify({"success": True, "progress": shard_item("progress.json", team_id, {})})
 
 @app.route("/api/save-flow", methods=["POST"])
 def save_flow_draft():
@@ -717,15 +902,16 @@ def save_flow_draft():
     flow = payload.get("flow")
     if not team_id or not mission_id or not isinstance(flow, dict)             or not isinstance(flow.get("nodes", []), list) or not isinstance(flow.get("edges", []), list):
         return jsonify({"success": False, "error": "team_id, mission_id and a valid flow are required"}), 400
-    participant = next((p for p in load_json("participants.json") if p.get("team_id") == team_id), None)
+    rows = _db.kv_get_many([SHARDS["participants.json"][0] + team_id, SHARDS["progress.json"][0] + team_id])
+    participant = rows.get(SHARDS["participants.json"][0] + team_id)
     if not participant or participant.get("status") != "active":
         return jsonify({"success": False, "error": "Not allowed by admin"}), 403
 
-    progress = load_json("progress.json")
-    record = progress.setdefault(team_id, {}).setdefault(mission_id, {})
+    team_progress = rows.get(SHARDS["progress.json"][0] + team_id, {})
+    record = team_progress.setdefault(mission_id, {})
     record["flow"] = flow
     record["saved_at"] = time.time()
-    save_json("progress.json", progress)
+    shard_put("progress.json", team_id, team_progress)
     return jsonify({"success": True})
 
 
@@ -796,6 +982,7 @@ def submit_solution():
     # Update or add submission for team
     existing_idx = next((i for i, s in enumerate(submissions) if s["team_id"] == team_id and s["mission_id"] == mission_id), None)
     if existing_idx is not None:
+        record["_id"], record["_ts"] = submissions[existing_idx].get("_id"), submissions[existing_idx].get("_ts", 0)
         submissions[existing_idx] = record
     else:
         submissions.append(record)
@@ -1021,14 +1208,10 @@ def delete_admin_participant(team_id):
         del progress[team_id]
         save_json("progress.json", progress)
 
-    presence = kv_get(PRESENCE_KEY, {})
-    if team_id in presence:
-        del presence[team_id]
-        kv_set(PRESENCE_KEY, presence)
-
-    deleted = set(kv_get(DELETED_PARTICIPANTS_KEY, []))
-    deleted.add(team_id)
-    kv_set(DELETED_PARTICIPANTS_KEY, list(deleted))
+    shard_drop(PRESENCE_KEY, team_id)
+    shard_drop(VIOLATIONS_KEY, team_id)
+    shard_drop(FORCED_FULLSCREEN_KEY, team_id)
+    shard_put(DELETED_PARTICIPANTS_KEY, team_id, True)
 
     return jsonify({"success": True})
 
@@ -1094,6 +1277,7 @@ def _online_participants(participants, missions):
     titles = {m["id"]: m.get("title", m["id"]) for m in missions}
     by_team = {p.get("team_id"): p for p in participants}
     now = time.time()
+    forced = set(kv_get(FORCED_FULLSCREEN_KEY, []))
     online = []
     for team_id, entry in presence.items():
         if not entry.get("online") or now - entry.get("last_seen", 0) > PRESENCE_TTL_SECONDS:
@@ -1106,6 +1290,7 @@ def _online_participants(participants, missions):
             "mission": titles.get(entry.get("mission_id"), entry.get("mission_id") or "—"),
             "seconds_since_seen": int(now - entry.get("last_seen", now)),
             "fullscreen": bool(entry.get("fullscreen")),
+            "forced_fullscreen": team_id in forced,
         })
     online.sort(key=lambda row: row["team_id"])
     return online
@@ -1144,7 +1329,7 @@ def get_admin_live():
 
     return jsonify({
         "success": True,
-        "timer": timer_snapshot(),
+        "timer": {**timer_snapshot(), "participant_violation": bool(kv_get(VIOLATIONS_KEY, {}))},
         "summary": {
             "participants": {
                 "canvas": len(participants),

@@ -117,3 +117,100 @@ def _kv_store(key, value):
         timeout=10,
     )
     resp.raise_for_status()
+
+
+# ---------------------------------------------------------------------------
+# Sharded records: one row per item ("presence:TEAM_01") instead of one big JSON
+# value per table. Writers touch only their own rows, so simultaneous requests
+# from different participants can never overwrite each other's data.
+# ---------------------------------------------------------------------------
+_PAGE = 1000
+
+
+def _quote(key):
+    return '"' + key.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def kv_scan(prefix):
+    """Every row whose key starts with `prefix`, as {full_key: value}."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        with _local_lock:
+            store = _read_local_store()
+        return {k: v for k, v in store.items() if k.startswith(prefix)}
+    # PostgREST's LIKE wildcard is "*"; escape the literal ones in the prefix.
+    pattern = prefix.replace("\\", "\\\\").replace("%", "\%").replace("_", "\_") + "*"
+    out, offset = {}, 0
+    while True:
+        resp = _session.get(
+            f"{SUPABASE_URL}/rest/v1/kv_store",
+            headers=_HEADERS,
+            params={"key": f"like.{pattern}", "select": "key,value", "order": "key.asc",
+                    "limit": _PAGE, "offset": offset},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        out.update({r["key"]: r["value"] for r in rows})
+        if len(rows) < _PAGE:
+            return out
+        offset += _PAGE
+
+
+def kv_get_many(keys):
+    """{key: value} for the keys that exist, fetched in one round trip."""
+    keys = list(dict.fromkeys(keys))
+    if not keys:
+        return {}
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        with _local_lock:
+            store = _read_local_store()
+        return {k: store[k] for k in keys if k in store}
+    resp = _session.get(
+        f"{SUPABASE_URL}/rest/v1/kv_store",
+        headers=_HEADERS,
+        params={"key": "in.(" + ",".join(_quote(k) for k in keys) + ")", "select": "key,value"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return {r["key"]: r["value"] for r in resp.json()}
+
+
+def kv_write_many(items):
+    """Upsert several rows in a single request."""
+    if not items:
+        return
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        with _local_lock:
+            store = _read_local_store()
+            store.update(items)
+            _write_local_store(store)
+        return
+    resp = _session.post(
+        f"{SUPABASE_URL}/rest/v1/kv_store",
+        headers={**_HEADERS, "Prefer": "resolution=merge-duplicates"},
+        params={"on_conflict": "key"},
+        json=[{"key": k, "value": v} for k, v in items.items()],
+        timeout=10,
+    )
+    resp.raise_for_status()
+
+
+def kv_delete_many(keys):
+    keys = list(keys)
+    if not keys:
+        return
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        with _local_lock:
+            store = _read_local_store()
+            for k in keys:
+                store.pop(k, None)
+            _write_local_store(store)
+        return
+    for i in range(0, len(keys), 100):
+        resp = _session.delete(
+            f"{SUPABASE_URL}/rest/v1/kv_store",
+            headers=_HEADERS,
+            params={"key": "in.(" + ",".join(_quote(k) for k in keys[i:i + 100]) + ")"},
+            timeout=10,
+        )
+        resp.raise_for_status()
