@@ -34,12 +34,23 @@ npm run build      # outputs frontend/dist, which Flask serves
 ```
 For live frontend development run `npm run dev` in `frontend/` (http://localhost:5173, API calls are proxied to Flask on port 5000).
 
-### 3. Run Python Server
+### 3. Admin credentials (environment variables)
+The admin login is not stored in the code. Set these before starting the server:
+
+| Variable | Purpose |
+|---|---|
+| `PYLOOM_ADMIN_USERNAME` | admin username |
+| `PYLOOM_ADMIN_PASSWORD` | admin password |
+| `PYLOOM_ADMIN_SESSION_SECRET` | long random string used to sign admin sessions (required on Vercel) |
+
+Locally, put them in a git-ignored `.env` file in the project root (`PYLOOM_ADMIN_USERNAME=...`). On Vercel add them under Project Settings -> Environment Variables (or `vercel env add`). Without a username and password the admin sign-in is disabled.
+
+### 4. Run Python Server
 ```powershell
 py backend/app.py
 ```
 
-### 4. Open in Browser
+### 5. Open in Browser
 - **Visual IDE**: [http://127.0.0.1:5000](http://127.0.0.1:5000)
 - **Admin Dashboard**: [http://127.0.0.1:5000/admin](http://127.0.0.1:5000/admin)
 

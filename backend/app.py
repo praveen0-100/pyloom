@@ -6,6 +6,7 @@ import os
 import re
 import sys
 import copy
+import hmac
 import json
 import threading
 import time
@@ -167,9 +168,24 @@ def kv_set(key, value):
         return shard_write(key, value)
     return _raw_kv_set(key, value)
 
+def _load_dotenv():
+    """Tiny .env reader for local runs (real environment variables always win)."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    if not os.path.isfile(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
 app = Flask(__name__, static_folder="../frontend/dist", static_url_path="")
 CORS(app)
-app.secret_key = os.environ.get("PYLOOM_ADMIN_SESSION_SECRET", "pyloom-admin-session-secret")
+app.secret_key = os.environ.get("PYLOOM_ADMIN_SESSION_SECRET") or os.urandom(32).hex()
 
 @app.before_request
 def _ensure_migrated():
@@ -189,8 +205,11 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 # reads and writes the exact same state instead of an instance-local copy.
 MUTABLE_KEYS = {"participants.json", "progress.json", "submissions.json"}
 
-ADMIN_USERNAME = "Adminpy"
-ADMIN_PASSWORD = "Admin123"
+# Admin credentials come from the environment only (never from the code):
+#   PYLOOM_ADMIN_USERNAME, PYLOOM_ADMIN_PASSWORD  (and PYLOOM_ADMIN_SESSION_SECRET for sessions)
+# Locally they can be put in a git-ignored .env file in the project root.
+ADMIN_USERNAME = os.environ.get("PYLOOM_ADMIN_USERNAME", "")
+ADMIN_PASSWORD = os.environ.get("PYLOOM_ADMIN_PASSWORD", "")
 
 LEVEL_TIME_LIMITS = {"easy": 20 * 60, "medium": 15 * 60, "hard": 10 * 60}
 MAIN_TIME_LIMIT = 45 * 60
@@ -787,7 +806,11 @@ def serve_index():
 @app.route("/api/admin/login", methods=["POST"])
 def admin_login():
     payload = request.get_json() or {}
-    if payload.get("username") != ADMIN_USERNAME or payload.get("password") != ADMIN_PASSWORD:
+    if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+        return jsonify({"success": False, "error": "Admin sign-in is not configured on the server (set PYLOOM_ADMIN_USERNAME and PYLOOM_ADMIN_PASSWORD)."}), 503
+    given_user, given_pass = str(payload.get("username", "")), str(payload.get("password", ""))
+    if not (hmac.compare_digest(given_user.encode(), ADMIN_USERNAME.encode())
+            and hmac.compare_digest(given_pass.encode(), ADMIN_PASSWORD.encode())):
         return jsonify({"success": False, "error": "Invalid username or password"}), 401
     session["admin_id"] = session.get("admin_id") or uuid.uuid4().hex
     if not _claim_admin():
