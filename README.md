@@ -1,164 +1,172 @@
 # PYLOOM — Drag, Connect and Execute
 
-PYLOOM is a browser-based visual Python programming platform where users assemble and execute Python workflows visually by dragging modules, connecting ports, configuring parameters, and running graph workflows against a controlled Python execution engine.
+PYLOOM is a browser-based visual Python programming competition platform. Participants (solo players or two-person teams) assemble Python workflows by dragging nodes onto a canvas, connecting ports and typing parameters. A controlled Python engine runs the graph and scores it against visible and hidden test cases. An admin console runs the event: approvals, timers, live monitoring, violations and the leaderboard.
+
+**Live app:** participants <https://pyloom-three.vercel.app> · admin <https://pyloom-three.vercel.app/admin>
 
 ---
 
 ## Features
 
-- **Visual DAG Programming Engine**: Safe topological execution without arbitrary `exec()` / `eval()`.
-- **Drag-and-Drop Canvas**: Glassmorphic UI with SVG Bezier connection lines, port snapping, zoom/pan/auto-layout.
-- **Controlled Module Registry**: Standard library of Data, Math, String, Logic, and Charting modules.
-- **Missions & Test Engine**: Real-time visible and hidden unit tests with credit scoring (100 credits total across Round 1 & Round 2).
-- **Matplotlib Charting Support**: Dynamic line charts, bar plots, and visualization node rendering.
-- **Admin Dashboard**: Live submission monitoring for competition judging.
+**Participant console**
+- Visual node editor: drag-and-drop palette, SVG connections (double-click a link to unlink), zoom / pan / auto-layout, autosave of every mapping.
+- **Team login** (team name, team code, two member names, college, year) and **Solo login** (name, Player ID, college, year), plus a choice of avatar from the `avatar/` folder.
+- Instructions and rules pop-ups after login (reopen any time with the **Instructions** button), **Exit event** and **Log out** buttons.
+- **Run flow** only evaluates the mapping against the test cases. **Submit solution** records progress, awards the score and updates the leaderboard.
+- Hints (step by step, cost 3 credits), 3 mapping trials per question, level and total score shown live.
+- Fully responsive: phones, tablets, laptops and 2K/4K screens.
+
+**Admin console**
+- Approve, deactivate, unlock or delete participants (solo or team); delete all users when the event is complete.
+- Shared main and level timers (start / pause / resume / restart), reset questions.
+- Live online list, full-screen violation alerts (also for inactive/offline players), leaderboard (score out of 100), submissions log.
+
+**Engine**
+- Safe topological execution of the graph (no `eval()`/`exec()` of user code), module registry for Data, Math, String, Logic and Charts, Matplotlib chart output.
 
 ---
 
-## Quick Start Guide
+## Event rules implemented
 
-### 1. Install Dependencies
-```powershell
-pip install -r backend/requirements.txt
+| Topic | Behaviour |
+|---|---|
+| Levels | Easy (5 questions), Medium (3), Hard (2). Medium/Hard open after every question of the previous level has been submitted. |
+| Timers | Main 45 min. Level timers: Easy 20, Medium 15, Hard 10 min. One shared clock for everyone, controlled only by the admin; logging out/in never changes it. |
+| Score (100 total) | Easy 4 per question (20), Medium 10 (30), Hard 25 (50). All test cases pass = full score; some = 3/4; one = 1/4; none = 0. Best score per question is kept. |
+| Event credits | Start at 10. Hints cost 3. Completing a level and entering the next adds +10. |
+| Access | A participant only enters the canvas after the admin approves them. Every new login needs approval again. |
+| Strict mode | Full screen is mandatory. Leaving full screen, switching tab/window, split screen or losing focus locks that participant, alerts the admin and blocks Run/Submit until the admin unlocks them. One open console per participant (a newer tab supersedes an older one). Dev-tool shortcuts and the context menu are disabled. |
+| Log out / re-login | Log out (and a fresh login with an existing ID) erases the participant's saved mappings, scores and submissions. After **Exit event** the final score is kept. |
+| Capacity | Up to **50** participants (a team counts as one). The 51st registration is refused. |
+
+---
+
+## Tech stack and structure
+
+- **Frontend:** React 18 + Vite (JavaScript, no TypeScript) in `frontend/`.
+- **Backend:** Flask (`backend/app.py`) with the execution engine in `backend/engine/` and modules in `backend/modules/`.
+- **Storage:** Supabase (key/value table, see `supabase_setup.sql`) in production; an in-memory + JSON file store (`backend/data/local_kv_store.json`) when Supabase is not configured.
+- **Deployment:** Vercel (`vercel.json`): the Vite build is served statically and Flask runs as a serverless function (`api/index.py`).
+
 ```
-script activation :
-    .venv\Scripts\activate
+pyloom/
+├─ backend/            Flask API, engine, modules, missions/tests data, storage (db.py)
+├─ frontend/           React + Vite app
+│  └─ src/
+│     ├─ pages/        ParticipantPage, ParticipantConsole, AdminPage
+│     ├─ components/   Canvas, nodes, panels, modals, registration, avatars ...
+│     ├─ hooks/        useSharedTimer, useParticipantLock
+│     ├─ lib/          api, storage, player, node definitions, theme
+│     └─ styles/       style.css, canvas.css, app.css (responsive rules)
+├─ avatar/             images offered as avatars at login
+├─ legacy-frontend/    the previous plain HTML/JS version (reference only)
+├─ api/index.py        Vercel entry point
+├─ tests/              unit tests
+└─ vercel.json
+```
 
-set "PATH=%PATH%;C:\Users\PRAVEEN PRABAKARN\.local\bin"
+---
 
-### 2. Build the React frontend (Vite + React, JavaScript)
+## Quick start (local)
+
+### 1. Install dependencies
 ```powershell
+pip install -r requirements.txt
 cd frontend
 npm install
-npm run build      # outputs frontend/dist, which Flask serves
 ```
-For live frontend development run `npm run dev` in `frontend/` (http://localhost:5173, API calls are proxied to Flask on port 5000).
 
-### 3. Admin credentials (environment variables)
-The admin login is not stored in the code. Set these before starting the server:
+### 2. Configure the admin login
+The admin credentials are **not** in the code. Create a git-ignored `.env` file in the project root:
+```
+PYLOOM_ADMIN_USERNAME=your-admin-user
+PYLOOM_ADMIN_PASSWORD=your-admin-password
+PYLOOM_ADMIN_SESSION_SECRET=a-long-random-string
+```
+Without a username and password the admin sign-in is disabled.
+
+### 3. Build the frontend and run
+```powershell
+cd frontend
+npm run build          # outputs frontend/dist, which Flask serves
+cd ..
+py backend/app.py      # http://127.0.0.1:5000
+```
+- Participants: <http://127.0.0.1:5000>
+- Admin: <http://127.0.0.1:5000/admin>
+
+For live frontend development run `npm run dev` in `frontend/` (http://localhost:5173) while Flask runs on port 5000; `/api` and `/avatar` are proxied.
+
+Use one browser (or an incognito window) per role so sessions do not mix.
+
+### Environment variables
 
 | Variable | Purpose |
 |---|---|
-| `PYLOOM_ADMIN_USERNAME` | admin username |
-| `PYLOOM_ADMIN_PASSWORD` | admin password |
-| `PYLOOM_ADMIN_SESSION_SECRET` | long random string used to sign admin sessions (required on Vercel) |
-
-Locally, put them in a git-ignored `.env` file in the project root (`PYLOOM_ADMIN_USERNAME=...`). On Vercel add them under Project Settings -> Environment Variables (or `vercel env add`). Without a username and password the admin sign-in is disabled.
-
-### 4. Run Python Server
-```powershell
-py backend/app.py
-```
-
-### 5. Open in Browser
-- **Visual IDE**: [http://127.0.0.1:5000](http://127.0.0.1:5000)
-- **Admin Dashboard**: [http://127.0.0.1:5000/admin](http://127.0.0.1:5000/admin)
+| `PYLOOM_ADMIN_USERNAME` / `PYLOOM_ADMIN_PASSWORD` | admin sign-in |
+| `PYLOOM_ADMIN_SESSION_SECRET` | signs admin sessions (set it on Vercel) |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` | shared state in production (leave unset locally to use the local store) |
 
 ---
 
-## Using Both Consoles Like the Real Product
+## Running the event
 
-PYLOOM has two consoles that share one server and one database, so they stay in sync automatically (both poll the server every moment):
+1. **Admin:** sign in at `/admin`. Participants who log in appear under **Participant access** as pending.
+2. **Participant:** open the app, choose **Team login** or **Solo login**, pick an avatar and submit. Wait for approval.
+3. **Admin:** click **Activate**. The participant's page opens automatically. They read the instructions and rules, agree, and enter full screen.
+4. **Admin:** click **Start both timers**. Pause/resume/restart the main or level timer as needed. Everyone sees the same clocks.
+5. **Participants:** build a flow, **Run flow** to check the test evaluation, **Submit solution** to record the score. They press **Exit event** when finished and see their score out of 100.
+6. **Admin:** watch live participants, violation alerts (use **Unlock** to let someone continue), the leaderboard and submissions. When the event is over use **Delete all users** to clear every participant and their progress.
 
-- **Admin console** - the organiser/judge screen at `/admin`.
-- **Participant console (Visual IDE)** - what each contestant uses at `/`.
-
-Use one browser (or window) per role. For a local demo, open the admin in a normal window and the participant in a second browser or an incognito window, so their sessions don't mix.
-
-### Step 1 - Start the app
-```powershell
-.venv\Scripts\activate
-py backend/app.py
-```
-Then open `http://127.0.0.1:5000/admin` (admin) and `http://127.0.0.1:5000` (participant). For a live event, deploy to Vercel (`vercel.json` is included) with the environment variables listed below and share the deployed URLs instead. Admin at `<your-url>/admin`, participants at `<your-url>/`.
-
-### Step 2 - Organiser: prepare the event (Admin console)
-1. Go to `/admin`, enter the admin **Username** and **Password**, and click **Open admin panel**.
-2. Optionally pre-register contestants: fill **Team / Player ID**, **Player name**, **College**, **Year of study** and click **Add pending**. Use **Allow** on a pending row to let that person in.
-3. Click **Full screen ON** to lock participants into fullscreen. Leaving fullscreen or losing focus is then flagged as a violation on your dashboard. **Release** switches it off and clears violations.
-
-### Step 3 - Contestant: join (Participant console)
-1. Open `/`, fill **Player name**, **Player ID** (e.g. `PLAYER_01`), **College**, **Year of study**, then click **Enter competition**.
-2. If the lock is on, click **Enter full screen** when prompted. Stay in fullscreen for the whole round.
-3. Pick a level tab (**Easy**, **Medium**, **Hard**). This starts the timers if they haven't started yet.
-
-### Step 4 - Contestant: solve a question
-1. Read the mission and use **Hint** if needed.
-2. Search the module palette (**Search nodes...**) and drag nodes onto the canvas.
-3. Connect output ports to input ports, then double-click/configure a node's parameters and **Save**.
-4. Use zoom, **Fit view** and **Auto layout** to keep the graph tidy; **Clear canvas** starts over.
-5. Click **Run flow** to test. Node outputs and charts appear on the canvas.
-6. Click **Submit solution** to run the visible and hidden tests and earn credits. Your best score per question is kept even if a later attempt is worse.
-7. Move between questions with **Prev Ques** / **Next Ques**.
-
-### Step 5 - Organiser: run and monitor the round (Admin console)
-- Watch live submissions, the summary, and the leaderboard update in near real time.
-- Use **Pause / Resume / Restart** on the **main timer** (45 min total) and the **level timer** (Easy 20, Medium 15, Hard 10 min). Participants' clocks follow instantly.
-- If a participant breaks the fullscreen lock, the violation and reason show on the dashboard. Click **Release** (or re-enable) to let them continue.
-- Fix mistakes with **Save mapping** (override a participant's progress on a question) or edit the participant's details.
-
-### Step 6 - Finish
-When the main timer reaches 0 it stops automatically. Review the leaderboard for final rankings, then click **Log out**.
-
-> Tip: the participant's `Player ID` is their team ID everywhere. Reusing an ID on another device resumes that player's saved work.
+Useful admin shortcuts: **Ctrl+R** unlocks every locked participant. **Reset questions** clears all progress and submissions but keeps the participants.
 
 ---
 
-## Commands & Controls (API reference)
+## API reference
 
-### Visual IDE (participant console, `/`)
-
-| Action | How |
+### Participant
+| Endpoint | Purpose |
 |---|---|
-| Register a team | Enter team details on the landing screen (`POST /api/participant/register`) |
-| Load missions | `GET /api/missions`, `GET /api/mission/<mission_id>` |
-| Add a module | Drag it from the module palette onto the canvas |
-| Connect ports | Drag from an output port to an input port (Bezier link, snaps to port) |
-| Run the flow | **Run flow** button (`POST /api/run-flow`) - executes the graph and shows node outputs/charts |
-| Submit for credits | **Submit solution** button (`POST /api/submit`) - runs visible + hidden tests and scores credits |
-| Resume progress | `GET /api/progress/<team_id>` - saved flow and best credits per question |
-| Change difficulty | Select Easy / Medium / Hard (`POST /api/timer/level`) - resets the level timer (18 / 15 / 12 min) |
-| Poll timer | `GET /api/timer/state` - main timer (45 min) and level timer are synced from the server |
+| `POST /api/participant/register` | solo or team login (`mode`, `team_id`, `player_name`, `members`, `college`, `year_of_study`, `avatar`, `login`) |
+| `GET /api/participant/status/<id>` | `pending` / `active` / `removed` (polled while waiting for approval) |
+| `POST /api/participant/heartbeat` | presence, one-session rule, violation/lock state |
+| `POST /api/participant/lock-violation` | report a full-screen/tab violation |
+| `POST /api/participant/leave` · `/exit` · `/logout` | log out (erases saved data) · exit the event (keeps the score) · page closed (marks offline) |
+| `GET /api/participant/score/<id>` | final score summary (total, per level, rank) |
+| `GET /api/missions` · `/api/mission/<id>` | questions |
+| `POST /api/run-flow` | evaluate a mapping (records nothing) |
+| `POST /api/submit` | record progress and score |
+| `POST /api/save-flow` · `GET /api/progress/<id>` | autosave and restore mappings |
+| `GET /api/timer/state` · `POST /api/timer/level` | shared timers |
+| `GET /api/avatars` · `GET /avatar/<file>` | avatar list and images |
 
-When the admin enables the **participant lock**, the IDE requires fullscreen and window focus. Losing either is reported (`POST /api/participant/lock-violation`) and shown on the admin dashboard.
-
-### Admin Dashboard (`/admin`)
-
-Sign in with the admin credentials (`POST /api/admin/login`; `/api/admin/session` and `/api/admin/logout` check/end the session). All other `/api/admin/*` routes require the session.
-
-| Control | Endpoint / payload |
+### Admin (`/api/admin/*`, requires the admin session)
+| Endpoint | Purpose |
 |---|---|
-| Pause / resume / restart a timer | `POST /api/admin/timer/control` `{"timer": "main" \| "level", "action": "pause" \| "resume" \| "restart"}` |
-| Enable / release participant lock | `POST /api/admin/participant-control` `{"action": "enable" \| "release"}` (release also clears violations) |
-| View submissions | `GET /api/admin/submissions` |
-| Summary stats | `GET /api/admin/summary` |
-| Leaderboard | `GET /api/admin/leaderboard` |
-| Live activity feed | `GET /api/admin/live` (polled for near-instant sync) |
-| Add a participant | `POST /api/admin/participants` |
-| Allow a participant back in | `POST /api/admin/participants/<team_id>/allow` |
-| Edit a participant | `PUT /api/admin/participants/<team_id>` |
-| Override progress | `PUT /api/admin/progress/<team_id>/<mission_id>` |
-
-Example (PowerShell, after logging in with a session cookie):
-```powershell
-$s = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-$body = '{"username":"<admin user>","password":"<admin password>"}'
-Invoke-RestMethod http://127.0.0.1:5000/api/admin/login -Method Post -Body $body -ContentType application/json -WebSession $s
-Invoke-RestMethod http://127.0.0.1:5000/api/admin/timer/control -Method Post -WebSession $s -ContentType application/json `
-  -Body '{"timer":"main","action":"pause"}'
-```
-
-### Environment Variables
-
-| Variable | Purpose |
-|---|---|
-| `SUPABASE_URL` | Supabase project URL (shared state for participants, progress, submissions, timer) |
-| `SUPABASE_SERVICE_KEY` | Supabase service key |
-| `PYLOOM_ADMIN_SESSION_SECRET` | Flask session secret for admin login |
+| `POST /login` · `GET /session` · `POST /logout` | admin session |
+| `GET /live` | everything the dashboard polls (participants, leaderboard, submissions, violations, timer) |
+| `POST /timer/control` | `{"timer": "main"\|"level"\|"both", "action": "start"\|"pause"\|"resume"\|"restart"}` |
+| `POST /participants/<id>/allow` · `/revoke` | activate / deactivate |
+| `POST /participants/<id>/fullscreen` | unlock a participant's session |
+| `POST /participant-control` | `{"action": "release"}` unlocks everyone |
+| `DELETE /participants/<id>` | delete one participant and all their data |
+| `POST /delete-all-users` | end of event: delete every participant and progress |
+| `POST /reset-questions` | clear all progress and submissions |
+| `PUT /participants/<id>` · `PUT /progress/<id>/<mission>` | edit details / override a mapping |
+| `GET /leaderboard` · `/submissions` · `/summary` | reports |
 
 ---
 
-## Running Automated Tests
+## Deployment (Vercel)
+
+```powershell
+vercel --prod
+```
+Set `PYLOOM_ADMIN_USERNAME`, `PYLOOM_ADMIN_PASSWORD`, `PYLOOM_ADMIN_SESSION_SECRET`, `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` as environment variables (`vercel env add`). The build runs `npm run build` in `frontend/` and publishes `frontend/dist`; the `avatar/` folder is bundled into the function.
+
+---
+
+## Tests
 ```powershell
 python -m unittest discover tests
 ```
