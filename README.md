@@ -26,12 +26,20 @@ script activation :
 
 set "PATH=%PATH%;C:\Users\PRAVEEN PRABAKARN\.local\bin"
 
-### 2. Run Python Server
+### 2. Build the React frontend (Vite + React, JavaScript)
+```powershell
+cd frontend
+npm install
+npm run build      # outputs frontend/dist, which Flask serves
+```
+For live frontend development run `npm run dev` in `frontend/` (http://localhost:5173, API calls are proxied to Flask on port 5000).
+
+### 3. Run Python Server
 ```powershell
 py backend/app.py
 ```
 
-### 3. Open in Browser
+### 4. Open in Browser
 - **Visual IDE**: [http://127.0.0.1:5000](http://127.0.0.1:5000)
 - **Admin Dashboard**: [http://127.0.0.1:5000/admin](http://127.0.0.1:5000/admin)
 

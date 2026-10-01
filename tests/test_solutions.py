@@ -80,6 +80,14 @@ class TestReferenceSolutions(unittest.TestCase):
         patcher = mock.patch.object(app_module, "record_progress", return_value={})
         patcher.start()
         self.addCleanup(patcher.stop)
+        # The test team "T" is not a registered participant; treat it as admin-activated.
+        access = mock.patch.object(app_module, "_participant_access_denied", return_value=False)
+        access.start()
+        self.addCleanup(access.stop)
+        # Independent of whatever the shared timer in the local data store is doing.
+        lock = mock.patch.object(app_module, "_timed_lock_error", return_value=None)
+        lock.start()
+        self.addCleanup(lock.stop)
 
     def run_flow(self, mission_id, flow_json):
         res = self.client.post("/api/run-flow", json={"mission_id": mission_id, "flow": flow_json, "team_id": "T"})

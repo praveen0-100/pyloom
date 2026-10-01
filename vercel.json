@@ -1,8 +1,10 @@
 {
   "framework": null,
+  "installCommand": "cd frontend && npm install",
+  "buildCommand": "cd frontend && npm run build",
   "functions": {
     "api/index.py": {
-      "includeFiles": "{backend,frontend}/**",
+      "includeFiles": "{backend,frontend/dist,avatar}/**",
       "excludeFiles": "backend/generated/**"
     }
   },

@@ -53,8 +53,22 @@ function renderSharedTimer() {
 
 function applySharedTimerState(nextState) {
   const previous = timerState;
-  timerState = { ...nextState };
-  timerBaseAt = performance.now();
+  // Keep the smooth local countdown unless the server disagrees noticeably or the
+  // run/pause state changed; this removes the jitter from every poll.
+  let keepBase = false;
+  if (previous && previous.started === nextState.started && previous.main_paused === nextState.main_paused &&
+      previous.level_paused === nextState.level_paused && previous.level_entered === nextState.level_entered &&
+      previous.level_total_seconds === nextState.level_total_seconds) {
+    const shown = displayedTimerValues();
+    keepBase = Math.abs(shown.main - nextState.main_remaining_seconds) < 1.5 &&
+      Math.abs(shown.level - nextState.level_remaining_seconds) < 1.5;
+  }
+  if (keepBase) {
+    timerState = { ...nextState, main_remaining_seconds: previous.main_remaining_seconds, level_remaining_seconds: previous.level_remaining_seconds };
+  } else {
+    timerState = { ...nextState };
+    timerBaseAt = performance.now();
+  }
   renderSharedTimer();
   // Once the admin has started the timers, begin this participant's countdown for
   // the level they are on (the server records it once per level).
@@ -65,8 +79,8 @@ function applySharedTimerState(nextState) {
   if ((!previous || previous.participant_lock_enabled !== timerState.participant_lock_enabled || previous.participant_violation !== timerState.participant_violation) && onParticipantLockChange) {
     onParticipantLockChange(timerState.participant_lock_enabled, timerState.participant_violation, timerState.participant_violation_reason);
   }
-  if (previous && previous.main_remaining_seconds > 0 && timerState.main_remaining_seconds <= 0 && onMainExpired) onMainExpired();
-  if (previous && previous.level_remaining_seconds > 0 && timerState.level_remaining_seconds <= 0 && onLevelExpired) onLevelExpired();
+  if (previous && previous.main_remaining_seconds > 0 && nextState.main_remaining_seconds <= 0 && onMainExpired) onMainExpired();
+  if (previous && previous.level_remaining_seconds > 0 && nextState.level_remaining_seconds <= 0 && onLevelExpired) onLevelExpired();
 }
 
 function startDisplayTick() {

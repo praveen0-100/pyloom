@@ -16,6 +16,7 @@ ever actually stuck between requests.
 """
 import os
 import copy
+import atexit
 import json
 import threading
 import requests
@@ -42,20 +43,60 @@ _LOCAL_STORE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "da
 _local_lock = threading.Lock()
 
 
-def _read_local_store():
-    if not os.path.exists(_LOCAL_STORE_PATH):
-        return {}
+# Local (no Supabase) store. Tuned for ~50 simultaneous participants: the JSON file is parsed
+# once and kept in memory (re-read only when another process changed the file), reads hand out
+# copies, and writes are flushed to disk in the background a moment after the last change
+# instead of rewriting the whole file on every request.
+_local = {"store": None, "mtime": None, "dirty": False, "timer": None}
+_FLUSH_DELAY_SECONDS = 0.25
+
+
+def _file_mtime():
     try:
-        with open(_LOCAL_STORE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+        return os.path.getmtime(_LOCAL_STORE_PATH)
+    except OSError:
+        return None
+
+
+def _read_local_store():
+    """Callers hold _local_lock."""
+    if _local["store"] is not None and (_local["dirty"] or _file_mtime() == _local["mtime"]):
+        return _local["store"]
+    store = {}
+    if os.path.exists(_LOCAL_STORE_PATH):
+        try:
+            with open(_LOCAL_STORE_PATH, "r", encoding="utf-8") as f:
+                store = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            store = {}
+    _local["store"], _local["mtime"] = store, _file_mtime()
+    return store
+
+
+def _flush_local_store():
+    with _local_lock:
+        _local["timer"] = None
+        if not _local["dirty"] or _local["store"] is None:
+            return
+        os.makedirs(os.path.dirname(_LOCAL_STORE_PATH), exist_ok=True)
+        tmp = _LOCAL_STORE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_local["store"], f, separators=(",", ":"))
+        os.replace(tmp, _LOCAL_STORE_PATH)
+        _local["dirty"], _local["mtime"] = False, _file_mtime()
 
 
 def _write_local_store(store):
-    os.makedirs(os.path.dirname(_LOCAL_STORE_PATH), exist_ok=True)
-    with open(_LOCAL_STORE_PATH, "w", encoding="utf-8") as f:
-        json.dump(store, f, indent=2)
+    """Callers hold _local_lock."""
+    _local["store"], _local["dirty"] = store, True
+    if _local["timer"] is None:
+        timer = threading.Timer(_FLUSH_DELAY_SECONDS, _flush_local_store)
+        timer.daemon = True
+        _local["timer"] = timer
+        timer.start()
+
+
+atexit.register(_flush_local_store)
 
 
 def _memo():
@@ -89,8 +130,8 @@ def kv_set(key, value):
 def _kv_fetch(key):
     if not SUPABASE_URL or not SUPABASE_KEY:
         with _local_lock:
-            store = _read_local_store()
-        return store.get(key, _MISSING)
+            value = _read_local_store().get(key, _MISSING)
+            return value if value is _MISSING else copy.deepcopy(value)
     resp = _session.get(
         f"{SUPABASE_URL}/rest/v1/kv_store",
         headers=_HEADERS,
@@ -106,7 +147,7 @@ def _kv_store(key, value):
     if not SUPABASE_URL or not SUPABASE_KEY:
         with _local_lock:
             store = _read_local_store()
-            store[key] = value
+            store[key] = copy.deepcopy(value)
             _write_local_store(store)
         return
     resp = _session.post(
@@ -135,10 +176,9 @@ def kv_scan(prefix):
     """Every row whose key starts with `prefix`, as {full_key: value}."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         with _local_lock:
-            store = _read_local_store()
-        return {k: v for k, v in store.items() if k.startswith(prefix)}
+            return {k: copy.deepcopy(v) for k, v in _read_local_store().items() if k.startswith(prefix)}
     # PostgREST's LIKE wildcard is "*"; escape the literal ones in the prefix.
-    pattern = prefix.replace("\\", "\\\\").replace("%", "\%").replace("_", "\_") + "*"
+    pattern = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "*"
     out, offset = {}, 0
     while True:
         resp = _session.get(
@@ -164,7 +204,7 @@ def kv_get_many(keys):
     if not SUPABASE_URL or not SUPABASE_KEY:
         with _local_lock:
             store = _read_local_store()
-        return {k: store[k] for k in keys if k in store}
+            return {k: copy.deepcopy(store[k]) for k in keys if k in store}
     resp = _session.get(
         f"{SUPABASE_URL}/rest/v1/kv_store",
         headers=_HEADERS,
@@ -182,7 +222,7 @@ def kv_write_many(items):
     if not SUPABASE_URL or not SUPABASE_KEY:
         with _local_lock:
             store = _read_local_store()
-            store.update(items)
+            store.update(copy.deepcopy(items))
             _write_local_store(store)
         return
     resp = _session.post(

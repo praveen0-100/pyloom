@@ -472,7 +472,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   initActionButtons();
 
   initializeParticipantLockUI();
-  initializeSharedTimer("easy", onLevelTimeExpired, onMainTimeExpired, handleParticipantLockChange);
+  // Timer polls only carry the shared lock flag; they must never overwrite this participant's own violation.
+  initializeSharedTimer("easy", onLevelTimeExpired, onMainTimeExpired, (enabled) => handleParticipantLockChange(enabled, participantLockViolation));
   startParticipantHeartbeat();
 });
 

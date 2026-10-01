@@ -3,9 +3,11 @@ PYLOOM Flask Web Server
 Serves visual workflow execution APIs, static frontend, and admin dashboard.
 """
 import os
+import re
 import sys
 import copy
 import json
+import threading
 import time
 import uuid
 
@@ -17,7 +19,7 @@ from flask_cors import CORS
 
 from backend.engine.validator import validate_flow
 from backend.engine.executor import execute_flow
-from backend.engine.scorer import score_flow, outputs_match
+from backend.engine.scorer import score_flow, outputs_match, LEVEL_SCORE, TOTAL_SCORE
 from flask import g, has_request_context
 from backend import db as _db
 from backend.db import kv_get as _raw_kv_get, kv_set as _raw_kv_set
@@ -165,7 +167,7 @@ def kv_set(key, value):
         return shard_write(key, value)
     return _raw_kv_set(key, value)
 
-app = Flask(__name__, static_folder="../frontend", static_url_path="")
+app = Flask(__name__, static_folder="../frontend/dist", static_url_path="")
 CORS(app)
 app.secret_key = os.environ.get("PYLOOM_ADMIN_SESSION_SECRET", "pyloom-admin-session-secret")
 
@@ -192,6 +194,9 @@ ADMIN_PASSWORD = "Admin123"
 
 LEVEL_TIME_LIMITS = {"easy": 20 * 60, "medium": 15 * 60, "hard": 10 * 60}
 MAIN_TIME_LIMIT = 45 * 60
+# Designed (and tuned: cached reads, staggered polling) for up to 50 participants at once.
+# A solo player or a team counts as one participant.
+MAX_PARTICIPANTS = 50
 # Unlocking a hint already costs the participant 3 event credits, so it no longer also
 # deducts from the question's 0-4 score (that pushed correct answers down to 0).
 HINT_SCORE_PENALTY = 0
@@ -265,7 +270,23 @@ def timer_snapshot():
 LEVEL_ORDER = ["easy", "medium", "hard"]
 
 
+_unlock_cache = {}
+UNLOCK_CACHE_SECONDS = 3.0
+
+
 def _level_unlocked(team_id, level):
+    """Cached for a few seconds: every console polls the timer, and this reads progress."""
+    key = (team_id, level)
+    hit = _unlock_cache.get(key)
+    now = time.time()
+    if hit and now - hit[0] < UNLOCK_CACHE_SECONDS:
+        return hit[1]
+    value = _level_unlocked_uncached(team_id, level)
+    _unlock_cache[key] = (now, value)
+    return value
+
+
+def _level_unlocked_uncached(team_id, level):
     """Easy runs from the start. Medium/hard timers only start once every question of the
     previous level has been attempted (tried, wrong or completed - any recorded attempt)."""
     idx = LEVEL_ORDER.index(level)
@@ -291,12 +312,11 @@ def _level_view(snapshot, team_id, level):
     Time is measured on the admin's level clock, so admin pause/resume applies to all.
     """
     total = LEVEL_TIME_LIMITS[level]
-    clock = _team_level_clock(team_id)
-    used = float(clock["used"].get(level, 0.0))
     unlocked = _level_unlocked(team_id, level)
-    active = snapshot["started"] and unlocked and clock["active"] == level
-    if active:
-        used += max(0.0, snapshot["level_run_seconds"] - clock["g0"])
+    # One shared level clock for everyone: login/logout or switching levels never
+    # changes it, so every participant sees the same time.
+    active = bool(snapshot["started"] and unlocked)
+    used = snapshot["level_run_seconds"] if active else 0.0
     return {
         "level": level,
         "level_entered": active,
@@ -352,13 +372,6 @@ def enter_timer_level():
     if not team_id or level not in LEVEL_TIME_LIMITS:
         return jsonify({"success": False, "error": "team_id and a valid level are required"}), 400
     snapshot = timer_snapshot()
-    if snapshot["started"]:
-        if _level_unlocked(team_id, level):
-            _activate_level(team_id, level, snapshot["level_run_seconds"])
-        else:
-            # Locked level (previous one not finished): its timer stays paused, and the
-            # level the participant just left stops running too.
-            _deactivate_level(team_id, snapshot["level_run_seconds"])
     return jsonify({"success": True, "timer": _participant_timer(team_id, level)})
 
 
@@ -477,6 +490,21 @@ def touch_presence(team_id, mission_id=None, active=True, fullscreen=None, entry
     return changed_mission
 
 
+def _wipe_participant_data(team_id):
+    """Erase everything saved for a participant (progress, scores, submissions, level clock,
+    presence, violations). The participant record itself is left to the caller."""
+    progress = load_json("progress.json")
+    if team_id in progress:
+        del progress[team_id]
+        save_json("progress.json", progress)
+    submissions = load_json("submissions.json")
+    remaining = [s for s in submissions if s.get("team_id") != team_id]
+    if len(remaining) != len(submissions):
+        save_json("submissions.json", remaining)
+    for key in (PRESENCE_KEY, VIOLATIONS_KEY, FORCED_FULLSCREEN_KEY, "level_entries"):
+        shard_drop(key, team_id)
+
+
 @app.route("/api/participant/status/<team_id>", methods=["GET"])
 def participant_status(team_id):
     found = shard_items("participants.json", [team_id])
@@ -505,38 +533,100 @@ def participant_heartbeat():
         return jsonify({"success": False, "error": "Not allowed by admin"}), 403
     # visible=false means the participant switched tab/window: mark them inactive now.
     visible = bool(payload.get("visible", True))
+    # One open console per participant: the most recently opened tab/window wins and any older
+    # one is told it was superseded (a second tab or split window cannot be used to cheat).
+    entry = rows.get(keys[PRESENCE_KEY], {})
+    session_id = str(payload.get("session_id", ""))[:64]
+    started = float(payload.get("session_started") or 0)
+    if session_id:
+        if (entry.get("session_id") and entry["session_id"] != session_id
+                and time.time() - entry.get("last_seen", 0) < PRESENCE_TTL_SECONDS
+                and started < entry.get("session_started", 0)):
+            return jsonify({"success": True, "superseded": True,
+                            "reset_epoch": rows.get(RESET_EPOCH_KEY, "0"),
+                            "violation": keys[VIOLATIONS_KEY] in rows, "forced_lock": True})
+        entry["session_id"], entry["session_started"] = session_id, started
+    # A hidden tab only counts once the participant had entered full screen (armed).
+    if not visible and payload.get("armed") and keys[VIOLATIONS_KEY] not in rows and _fullscreen_lock_required(team_id):
+        _record_violation(team_id, "Participant tab or window lost visibility")
+        rows[keys[VIOLATIONS_KEY]] = True
     if touch_presence(team_id, mission_id, active=visible, fullscreen=payload.get("fullscreen"),
-                      entry=rows.get(keys[PRESENCE_KEY], {})) and visible:
+                      entry=entry) and visible:
         log_activity(team_id, "question", f"Opened question {mission_id}")
     return jsonify({
         "success": True,
         "reset_epoch": rows.get(RESET_EPOCH_KEY, "0"),
         "violation": keys[VIOLATIONS_KEY] in rows,
-        "forced_lock": keys[FORCED_FULLSCREEN_KEY] in rows,
+        "forced_lock": True,
     })
 
 
 @app.route("/api/participant/logout", methods=["POST"])
 def participant_logout():
-    team_id = str((request.get_json() or {}).get("team_id", "")).strip()
-    if team_id:
+    """Page closed / hidden: only marks the participant offline (nothing is erased)."""
+    team_id = str((request.get_json(silent=True, force=True) or {}).get("team_id", "")).strip()
+    if team_id and shard_item("participants.json", team_id):
         touch_presence(team_id, active=False)
-        _deactivate_level(team_id, timer_snapshot()["level_run_seconds"])
         log_activity(team_id, "logout", "Left the competition")
     return jsonify({"success": True})
 
 
+@app.route("/api/participant/exit", methods=["POST"])
+def participant_exit():
+    """The participant finished the event. Their score is kept (a later Log out does not erase it)."""
+    team_id = str((request.get_json(silent=True, force=True) or {}).get("team_id", "")).strip()
+    participant = shard_item("participants.json", team_id) if team_id else None
+    if participant:
+        participant["exited"] = True
+        shard_put("participants.json", team_id, participant)
+        touch_presence(team_id, active=False)
+        log_activity(team_id, "logout", "Exited the event")
+    return jsonify({"success": True})
+
+
+@app.route("/api/participant/leave", methods=["POST"])
+def participant_leave():
+    """Log out button. Unless the participant already exited the event, everything they saved is
+    erased and they go back to waiting for admin approval; the same ID can log in again."""
+    team_id = str((request.get_json(silent=True, force=True) or {}).get("team_id", "")).strip()
+    participant = shard_item("participants.json", team_id) if team_id else None
+    if participant:
+        if not participant.get("exited"):
+            _wipe_participant_data(team_id)
+        else:
+            shard_drop(PRESENCE_KEY, team_id)
+        participant["status"] = "pending"
+        shard_put("participants.json", team_id, participant)
+        log_activity(team_id, "logout", "Logged out")
+    return jsonify({"success": True})
+
+
+def _fullscreen_lock_required(team_id):
+    """Strict mode: every participant must stay in full screen on the canvas; the admin only
+    grants (or removes) the permission to take part."""
+    return True
+
+
+def _record_violation(team_id, reason):
+    """Remember a full-screen violation for this participant only (shown on the admin panel
+    even when the participant is inactive/offline). Returns True when newly recorded."""
+    if shard_item(VIOLATIONS_KEY, team_id):
+        return False
+    log_activity(team_id, "violation", reason)
+    shard_put(VIOLATIONS_KEY, team_id, {"reason": reason, "time": time.time()})
+    return True
+
+
 @app.route("/api/participant/lock-violation", methods=["POST"])
 def report_participant_lock_violation():
-    body = request.get_json() or {}
+    # keepalive fetches / sendBeacon may send the body as text/plain
+    body = request.get_json(silent=True, force=True) or {}
     reason = str(body.get("reason", "Fullscreen or focus was lost"))[:160]
     team_id = str(body.get("team_id", "")).strip() or "UNKNOWN"
     recorded = False
     # A violation locks only the participant who caused it; everyone else is unaffected.
-    if _load_timer_state()["participant_lock_enabled"] or shard_item(FORCED_FULLSCREEN_KEY, team_id):
-        if not shard_item(VIOLATIONS_KEY, team_id):
-            log_activity(team_id, "violation", reason)
-        shard_put(VIOLATIONS_KEY, team_id, reason)
+    if _fullscreen_lock_required(team_id):
+        _record_violation(team_id, reason)
         recorded = True
     return jsonify({"success": True, "participant_violation": recorded})
 
@@ -600,7 +690,18 @@ def save_json(filename, data):
         json.dump(data, f, indent=2)
 
 
+_progress_lock = threading.RLock()
+
+
 def record_progress(team_id, mission_id, status, flow=None, scoring=None, total_credits=None, all_tests_passed=None):
+    # One writer at a time per process: a concurrent autosave must not overwrite a just-recorded
+    # submission (both read-modify-write the same team record).
+    with _progress_lock:
+        return _record_progress_locked(team_id, mission_id, status, flow, scoring, total_credits, all_tests_passed)
+
+
+def _record_progress_locked(team_id, mission_id, status, flow, scoring, total_credits, all_tests_passed):
+    _unlock_cache.clear()
     participant = shard_item("progress.json", team_id, {})
     current = participant.get(mission_id, {})
     current["attempts"] = current.get("attempts", 0) + 1
@@ -625,13 +726,62 @@ def record_progress(team_id, mission_id, status, flow=None, scoring=None, total_
     log_activity(team_id, "run", f"Ran {mission_id}: {status.replace('_', ' ')}, {total_credits if total_credits is not None else 0} credits")
     return current
 
+# ---- Avatars: every image in the repo's avatar/ folder can be picked at login ----
+AVATAR_DIR = os.path.join(os.path.dirname(BASE_DIR), "avatar")
+_IMAGE_MAGIC = [(b"\xff\xd8\xff", "image/jpeg"), (b"\x89PNG\r\n\x1a\n", "image/png"),
+                (b"GIF8", "image/gif"), (b"RIFF", "image/webp")]
+
+
+def _sniff_image(path):
+    """MIME type from the file's first bytes (some avatar files have no extension)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(16)
+    except OSError:
+        return None
+    for magic, mime in _IMAGE_MAGIC:
+        if head.startswith(magic):
+            return mime
+    if head[4:12] in (b"ftypavif", b"ftypavis"):
+        return "image/avif"
+    return None
+
+
+def _natural_key(name):
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", name)]
+
+
+def _avatar_files():
+    if not os.path.isdir(AVATAR_DIR):
+        return []
+    names = [n for n in os.listdir(AVATAR_DIR)
+             if os.path.isfile(os.path.join(AVATAR_DIR, n)) and _sniff_image(os.path.join(AVATAR_DIR, n))]
+    return sorted(names, key=_natural_key)
+
+
+@app.route("/api/avatars", methods=["GET"])
+def list_avatars():
+    return jsonify({"success": True, "avatars": [{"file": n, "url": f"/avatar/{n}"} for n in _avatar_files()]})
+
+
+@app.route("/avatar/<path:filename>")
+def serve_avatar(filename):
+    path = os.path.join(AVATAR_DIR, os.path.basename(filename))
+    mime = _sniff_image(path) if os.path.isfile(path) else None
+    if not mime:
+        return jsonify({"success": False, "error": "Avatar not found"}), 404
+    response = send_from_directory(AVATAR_DIR, os.path.basename(filename), mimetype=mime)
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
+# The React (Vite) single-page app lives in frontend/dist; it picks the participant console or
+# the admin panel from the URL path.
 @app.route("/")
+@app.route("/admin")
+@app.route("/admin.html")
 def serve_index():
     return send_from_directory(app.static_folder, "index.html")
-
-@app.route("/admin")
-def serve_admin():
-    return redirect("/admin.html")
 
 
 @app.route("/api/admin/login", methods=["POST"])
@@ -667,17 +817,30 @@ def admin_logout():
 def register_participant():
     """Public self-registration for the participant console (login-style gate).
 
-    Upserts the player's profile into participants.json keyed by their chosen
-    Player ID (used as team_id everywhere else in the API). New players start as
-    "pending" and appear on the admin panel until the admin allows them in.
+    Two kinds of login share one record type, keyed by team_id (the Player ID for a solo
+    player, the Team Code for a team) which is used everywhere else in the API:
+      solo: player_name, team_id (Player ID), college, year_of_study
+      team: team_name (stored as player_name), team_id (Team Code), two member names,
+            college, year_of_study
+    New participants start as "pending" until the admin allows them in; the event holds at
+    most MAX_PARTICIPANTS (a team counts as one).
     """
     payload = request.get_json() or {}
+    mode = "team" if str(payload.get("mode", "solo")).lower() == "team" else "solo"
     team_id = str(payload.get("team_id", "")).strip()
     player_name = str(payload.get("player_name", "")).strip()
     college = str(payload.get("college", "")).strip()
     year_of_study = str(payload.get("year_of_study", "")).strip()
+    members = [str(m).strip() for m in (payload.get("members") or [])][:2]
+    avatar = str(payload.get("avatar", "")).strip()
+    # Logging in needs a valid avatar from the avatar folder; a background re-announce keeps the stored one.
+    if payload.get("login") and avatar not in _avatar_files():
+        return jsonify({"success": False, "error": "Please choose an avatar."}), 400
 
-    if not team_id or not player_name or not college or not year_of_study:
+    if mode == "team":
+        if not team_id or not player_name or len(members) < 2 or not all(members) or not college or not year_of_study:
+            return jsonify({"success": False, "error": "Team name, team code, both member names, college and year of study are all required"}), 400
+    elif not team_id or not player_name or not college or not year_of_study:
         return jsonify({"success": False, "error": "Player name, ID, college, and year of study are all required"}), 400
 
     rows = _db.kv_get_many([SHARDS["participants.json"][0] + team_id, SHARDS[DELETED_PARTICIPANTS_KEY][0] + team_id])
@@ -690,22 +853,40 @@ def register_participant():
         shard_drop(DELETED_PARTICIPANTS_KEY, team_id)
 
     participant = rows.get(SHARDS["participants.json"][0] + team_id)
+    if not participant and len(load_json("participants.json")) >= MAX_PARTICIPANTS:
+        return jsonify({"success": False, "full": True,
+                        "error": f"The event is full: at most {MAX_PARTICIPANTS} participants (solo players or teams) can take part."}), 403
     if participant:
         participant["player_name"] = player_name
         participant["college"] = college
         participant["year_of_study"] = year_of_study
-        # Keep the existing status: an already-allowed player stays allowed on re-login.
+        participant["mode"] = mode
+        participant["members"] = members if mode == "team" else []
+        if avatar in _avatar_files():
+            participant["avatar"] = avatar
+        # An explicit login from the form always needs the admin's approval again, even for
+        # a player activated earlier. A background re-announce (no "login" flag, e.g. a page
+        # reload with the identity already stored in the browser) keeps the current status.
+        if payload.get("login"):
+            participant["status"] = "pending"
+            participant.pop("exited", None)
+            # A returning login (the player had logged out, or signs in afresh) starts from a
+            # clean slate: everything they saved before is erased.
+            _wipe_participant_data(team_id)
     else:
         participant = {
             "team_id": team_id,
             "player_name": player_name,
             "college": college,
             "year_of_study": year_of_study,
+            "mode": mode,
+            "members": members if mode == "team" else [],
+            "avatar": avatar if avatar in _avatar_files() else "",
             "status": "pending",
         }
         participant["_ts"] = time.time()
     shard_put("participants.json", team_id, participant)
-    log_activity(team_id, "login", f"{player_name} logged in")
+    log_activity(team_id, "login", f"{player_name} logged in" + (f" (team: {', '.join(members)})" if mode == "team" else ""))
     return jsonify({"success": True, "participant": participant})
 
 
@@ -756,13 +937,32 @@ def _timed_lock_error(mission, team_id):
     return None
 
 
+def _participant_access_denied(team_id):
+    """True unless this participant exists, is activated by the admin and is not locked for a
+    full-screen / tab-switch violation (the admin must unlock them first)."""
+    team_id = str(team_id).strip()
+    participant = shard_item("participants.json", team_id)
+    if not participant or participant.get("status") != "active":
+        return True
+    return bool(shard_item(VIOLATIONS_KEY, team_id))
+
+
+ACCESS_DENIED_MESSAGE = "Your access was changed by the admin. Wait to be activated again."
+
+
 @app.route("/api/run-flow", methods=["POST"])
 def run_flow():
+    """Evaluate a mapping against the visible + hidden test cases. Nothing is recorded:
+    scores and progress are only saved by /api/submit."""
     payload = request.get_json() or {}
     mission_id = payload.get("mission_id", "mission_01")
     flow = payload.get("flow", {})
     hint_penalty = HINT_SCORE_PENALTY if payload.get("hint_used") else 0
     team_id = payload.get("team_id", "TEAM_07")
+
+    if _participant_access_denied(team_id):
+        return jsonify({"success": False, "error": {"type": "AccessDenied", "message": ACCESS_DENIED_MESSAGE},
+                        "output": None, "test_results": [], "denied": True}), 403
 
     missions = load_json("missions.json")
     tests_db = load_json("tests.json")
@@ -777,10 +977,6 @@ def run_flow():
     is_valid, val_error = validate_flow(flow, required_modules=mission.get("required_modules"))
     if not is_valid:
         score_data = score_flow(flow, mission, [], graph_valid=False, base_output=None, credit_penalty=hint_penalty)
-        progress_record = record_progress(
-            team_id, mission_id, "incorrect_mapping",
-            flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"]
-        )
         return jsonify({
             "success": False,
             "error": val_error,
@@ -790,17 +986,12 @@ def run_flow():
             "scoring_breakdown": score_data["breakdown"],
             "question_credits": score_data["question_credits"],
             "all_passed": score_data["all_passed"]
-            ,"progress": progress_record
         })
 
     # 2. Execute Base Flow
     exec_success, base_output = execute_flow(flow, input_data_override=mission.get("input"))
     if not exec_success:
         score_data = score_flow(flow, mission, [], graph_valid=True, base_output=None, credit_penalty=hint_penalty)
-        progress_record = record_progress(
-            team_id, mission_id, "tried",
-            flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"]
-        )
         return jsonify({
             "success": False,
             "error": base_output,
@@ -810,7 +1001,6 @@ def run_flow():
             "scoring_breakdown": score_data["breakdown"],
             "question_credits": score_data["question_credits"],
             "all_passed": score_data["all_passed"]
-            ,"progress": progress_record
         })
 
     # 3. Run Test Suite
@@ -842,12 +1032,6 @@ def run_flow():
     score_data = score_flow(flow, mission, test_results, graph_valid=True, base_output=base_output, credit_penalty=hint_penalty)
     all_tests_passed = bool(test_results) and all(t.get("passed") for t in test_results)
     completed = score_data["all_passed"]
-    progress_record = record_progress(
-        # Ran fine but the output/tests are wrong -> "wrong_output" (red chip).
-        team_id, mission_id, "completed" if completed else ("wrong_output" if score_data["attempted"] else "tried"),
-        flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"],
-        all_tests_passed=all_tests_passed
-    )
 
     # Detect output type (text, number, pattern, chart image)
     is_chart = isinstance(base_output, str) and base_output.startswith("data:image/")
@@ -861,7 +1045,6 @@ def run_flow():
         "scoring_breakdown": score_data["breakdown"],
         "question_credits": score_data["question_credits"],
         "all_passed": score_data["all_passed"]
-        ,"progress": progress_record
     })
 
 
@@ -880,10 +1063,11 @@ def participant_score(team_id):
             "completed": sum(1 for m in level_missions if records.get(m["id"], {}).get("status") == "completed"),
             "credits": sum(records.get(m["id"], {}).get("best_credits", 0) for m in level_missions),
             "bonus": level_bonuses.get(difficulty, {}).get("bonus", 0),
+            "max": LEVEL_SCORE[difficulty],
         }
     board = _build_leaderboard(_admin_participants(), progress, missions)
     rank = next((row["rank"] for row in board if row["player_id"] == team_id), None)
-    return jsonify({"success": True, "total": total, "levels": levels, "rank": rank, "players": len(board)})
+    return jsonify({"success": True, "total": total, "max_total": TOTAL_SCORE, "levels": levels, "rank": rank, "players": len(board)})
 
 
 @app.route("/api/progress/<team_id>", methods=["GET"])
@@ -907,11 +1091,13 @@ def save_flow_draft():
     if not participant or participant.get("status") != "active":
         return jsonify({"success": False, "error": "Not allowed by admin"}), 403
 
-    team_progress = rows.get(SHARDS["progress.json"][0] + team_id, {})
-    record = team_progress.setdefault(mission_id, {})
-    record["flow"] = flow
-    record["saved_at"] = time.time()
-    shard_put("progress.json", team_id, team_progress)
+    with _progress_lock:
+        # Re-read inside the lock so a submission recorded a moment ago is never overwritten.
+        team_progress = shard_item("progress.json", team_id, {})
+        record = team_progress.setdefault(mission_id, {})
+        record["flow"] = flow
+        record["saved_at"] = time.time()
+        shard_put("progress.json", team_id, team_progress)
     return jsonify({"success": True})
 
 
@@ -922,6 +1108,9 @@ def submit_solution():
     mission_id = payload.get("mission_id", "mission_01")
     flow = payload.get("flow", {})
     hint_penalty = HINT_SCORE_PENALTY if payload.get("hint_used") else 0
+
+    if _participant_access_denied(team_id):
+        return jsonify({"success": False, "submitted": False, "error": ACCESS_DENIED_MESSAGE, "denied": True}), 403
 
     missions = load_json("missions.json")
     tests_db = load_json("tests.json")
@@ -957,11 +1146,13 @@ def submit_solution():
     score_data = score_flow(flow, mission, test_results, graph_valid=is_valid, base_output=base_output, credit_penalty=hint_penalty)
     all_tests_passed = bool(test_results) and all(t.get("passed") for t in test_results)
 
-    # Submitting records progress the same way Run Flow does, so the credits earned
+    # Submitting is what records progress, so the credits earned
     # here actually count toward this team's saved progress and leaderboard score.
     completed = score_data["all_passed"]
-    record_progress(
-        team_id, mission_id, "completed" if completed else "tried",
+    progress_record = record_progress(
+        # Ran fine but the output/tests are wrong -> "wrong_output" (red chip).
+        team_id, mission_id,
+        "completed" if completed else ("wrong_output" if score_data["attempted"] else ("tried" if is_valid else "incorrect_mapping")),
         flow=flow, scoring=score_data["breakdown"], total_credits=score_data["total_credits"],
         all_tests_passed=all_tests_passed
     )
@@ -997,7 +1188,8 @@ def submit_solution():
         "credits": score_data["total_credits"],
         "scoring_breakdown": score_data["breakdown"],
         "mission_credits": score_data["question_credits"],
-        "status": record["status"]
+        "status": record["status"],
+        "progress": progress_record
     })
 
 @app.route("/api/admin/submissions", methods=["GET"])
@@ -1029,9 +1221,8 @@ def _admin_participants():
 def _team_earned_credits(team_id, progress):
     """Sum of the best credits a team has ever earned across every mission attempted.
 
-    Sourced from progress.json, which is updated on every /api/run-flow call - so a
-    team's leaderboard score rises the moment they earn credits on any question,
-    without needing a separate explicit submission.
+    Sourced from progress.json, which is updated by /api/submit - so a team's
+    leaderboard score rises as soon as a submission earns credits.
     """
     records = progress.get(team_id, {})
     return sum(record.get("best_credits", 0) for record in records.values())
@@ -1045,7 +1236,8 @@ def _mission_difficulty(mission):
 # difficulty level, split evenly across four factors: finishing every question in
 # the level, mapping every question correctly, passing every test case (hidden and
 # visible - the "entire pass case"), and solving efficiently (few retries).
-LEVEL_BONUS_TOTAL = {"easy": 8, "medium": 12, "hard": 16}
+# Disabled: the score is exactly 20 (easy) + 30 (medium) + 50 (hard) = 100.
+LEVEL_BONUS_TOTAL = {"easy": 0, "medium": 0, "hard": 0}
 PERFORMANCE_MAX_AVG_ATTEMPTS = 2
 
 
@@ -1202,18 +1394,31 @@ def delete_admin_participant(team_id):
     if len(remaining) == len(participants):
         return jsonify({"success": False, "error": "Participant not found"}), 404
     save_json("participants.json", remaining)
-
-    progress = load_json("progress.json")
-    if team_id in progress:
-        del progress[team_id]
-        save_json("progress.json", progress)
-
-    shard_drop(PRESENCE_KEY, team_id)
-    shard_drop(VIOLATIONS_KEY, team_id)
-    shard_drop(FORCED_FULLSCREEN_KEY, team_id)
+    # Progress, submissions, presence, violations and the level clock all go with them, so no
+    # ghost row can reappear on the admin panel or leaderboard.
+    _wipe_participant_data(team_id)
     shard_put(DELETED_PARTICIPANTS_KEY, team_id, True)
 
     return jsonify({"success": True})
+
+
+@app.route("/api/admin/delete-all-users", methods=["POST"])
+def delete_all_users():
+    """Admin-only, end of the event: remove every participant with their progress and
+    submissions. Each ID is tombstoned so any console still open is logged out."""
+    team_ids = {p.get("team_id") for p in load_json("participants.json")}
+    team_ids |= set(load_json("progress.json").keys())
+    team_ids |= {s.get("team_id") for s in load_json("submissions.json")}
+    team_ids.discard(None)
+    save_json("participants.json", [])
+    save_json("progress.json", {})
+    save_json("submissions.json", [])
+    for team_id in team_ids:
+        for key in (PRESENCE_KEY, VIOLATIONS_KEY, FORCED_FULLSCREEN_KEY, "level_entries"):
+            shard_drop(key, team_id)
+        shard_put(DELETED_PARTICIPANTS_KEY, team_id, True)
+    log_activity("ADMIN", "reset", f"Admin deleted all users ({len(team_ids)})")
+    return jsonify({"success": True, "deleted": len(team_ids)})
 
 
 @app.route("/api/admin/participants/<team_id>", methods=["PUT"])
@@ -1254,7 +1459,11 @@ def _build_leaderboard(participants, progress, missions):
             "player_name": participant.get("player_name") or "—",
             "college": participant.get("college") or "—",
             "year_of_study": participant.get("year_of_study") or "—",
+            "mode": participant.get("mode", "solo"),
+            "members": participant.get("members") or [],
+            "avatar": participant.get("avatar") or "",
             "score": score,
+            "max_score": TOTAL_SCORE,
             "level_bonuses": level_bonuses,
         })
     leaderboard.sort(key=lambda row: row["score"], reverse=True)
@@ -1287,6 +1496,7 @@ def _online_participants(participants, missions):
             "team_id": team_id,
             "player_name": p.get("player_name") or "—",
             "college": p.get("college") or "—",
+            "avatar": p.get("avatar") or "",
             "mission": titles.get(entry.get("mission_id"), entry.get("mission_id") or "—"),
             "seconds_since_seen": int(now - entry.get("last_seen", now)),
             "fullscreen": bool(entry.get("fullscreen")),
@@ -1296,14 +1506,35 @@ def _online_participants(participants, missions):
     return online
 
 
+_live_cache = {"at": 0.0, "payload": None}
+LIVE_CACHE_SECONDS = 1.5
+
+
+@app.after_request
+def _invalidate_live_cache(response):
+    # Any admin action (activate, delete, unlock, reset ...) must show up on the next poll.
+    if request.path.startswith("/api/admin/") and request.method != "GET":
+        _live_cache["at"] = 0.0
+    return response
+
+
 @app.route("/api/admin/live", methods=["GET"])
 def get_admin_live():
     """Everything the admin dashboard polls for, in one round trip.
 
-    Replaces four separate polled requests (summary, leaderboard, submissions,
-    timer) with a single call so the dashboard can refresh on a tight interval
-    without multiplying serverless invocations per tick.
+    The heavy part (participants, progress, leaderboard, submissions) is computed at most
+    once per LIVE_CACHE_SECONDS however many admin tabs poll; the timer is always fresh.
     """
+    now = time.time()
+    if _live_cache["payload"] is None or now - _live_cache["at"] > LIVE_CACHE_SECONDS:
+        _live_cache["payload"] = _compute_admin_live()
+        _live_cache["at"] = now
+    payload = dict(_live_cache["payload"])
+    payload["timer"] = {**timer_snapshot(), "participant_violation": bool(payload["violations"])}
+    return jsonify(payload)
+
+
+def _compute_admin_live():
     missions = load_json("missions.json")
     submissions = load_json("submissions.json")
     progress = load_json("progress.json")
@@ -1324,14 +1555,23 @@ def get_admin_live():
     total_questions = len(participant_ids) * len(missions)
 
     online_list = _online_participants(participants, missions)
+    violations_now = {t: (v if isinstance(v, dict) else {"reason": str(v), "time": 0})
+                      for t, v in kv_get(VIOLATIONS_KEY, {}).items()}
     online_ids = {row["team_id"] for row in online_list}
-    participants = [{**p, "online": p.get("team_id") in online_ids} for p in participants]
+    participants = [{**p, "online": p.get("team_id") in online_ids, "violation": violations_now.get(p.get("team_id"))}
+                    for p in participants]
+    for row in online_list:
+        row["violation"] = violations_now.get(row["team_id"])
 
-    return jsonify({
+    # The log only needs the table columns (not every saved flow), newest 150 entries.
+    slim_submissions = [{k: v for k, v in s.items() if k != "flow"} for s in submissions[-150:]]
+    return ({
         "success": True,
-        "timer": {**timer_snapshot(), "participant_violation": bool(kv_get(VIOLATIONS_KEY, {}))},
+        "violations": violations_now,
+        "total_submissions": len(submissions),
         "summary": {
             "participants": {
+                "max": MAX_PARTICIPANTS,
                 "canvas": len(participants),
                 "active": sum(1 for p in participants if p.get("status") == "active"),
                 "pending": sum(1 for p in participants if p.get("status") == "pending"),
@@ -1346,10 +1586,10 @@ def get_admin_live():
             "participant_records": participants,
         },
         "leaderboard": _build_leaderboard(participants, progress, missions),
-        "submissions": submissions,
+        "submissions": slim_submissions,
         "online_participants": online_list,
     })
 
 if __name__ == "__main__":
     print("Starting PYLOOM Web Application on http://127.0.0.1:5000 ...")
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=True, threaded=True)
