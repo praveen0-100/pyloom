@@ -95,3 +95,17 @@ def execute_round(val, config=None):
     if isinstance(val, (int, float)) and not isinstance(val, bool):
         return round(float(val), int(decimals))
     return val
+
+
+def execute_square(val, config=None):
+    """Square: value x value (e.g. height 1.75 -> 3.0625)."""
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return val * val
+    raise ValueError("Square needs a number.")
+
+
+def execute_convert(val, config=None):
+    """Convert: Fahrenheit -> Celsius with C = (F - 32) x 5 / 9, rounded to 1 decimal."""
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return round((val - 32) * 5 / 9, 1)
+    raise ValueError("Convert needs a temperature number in °F.")

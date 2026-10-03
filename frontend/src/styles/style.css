@@ -849,6 +849,7 @@ body {
 .cat-string { background: linear-gradient(135deg, var(--accent-amber), #b45309); }
 .cat-logic { background: linear-gradient(135deg, var(--accent-emerald), #059669); }
 .cat-chart { background: linear-gradient(135deg, var(--rf-accent), #db2777); }
+.cat-algo { background: linear-gradient(135deg, var(--accent-amber, #f59e0b), #d97706); }
 
 .module-info {
   display: flex;

@@ -4,8 +4,7 @@ const EVALUATIONS = [
   ["mapping_flow", "Mapping Flow"],
   ["logic_building", "Logic building"],
   ["sample_output", "Output compare with sample output"],
-  ["output_check", "Output check"],
-  ["test_cases", "All test cases (visible + hidden)"]
+  ["output_check", "Output check"]
 ];
 const CHECKS = EVALUATIONS.slice(0, 4);
 
@@ -15,10 +14,8 @@ function ScoringBreakdown({ scoring }) {
   }
   const b = scoring.breakdown;
   const max = scoring.max || 4;
-  const testScore = b.test_cases ?? 0;
-  const some = Math.floor(max * 0.75 + 0.5);
-  const one = Math.floor(max * 0.25 + 0.5);
-  const passedLabel = b.tests_total ? `${b.tests_passed}/${b.tests_total} test cases passed` : "Test cases";
+  const testScore = b.score ?? 0;
+  const share = (fraction) => Math.floor(max * fraction + 0.5);
   return (
     <div className="scoring-breakdown">
       {CHECKS.map(([key, label]) => {
@@ -30,7 +27,7 @@ function ScoringBreakdown({ scoring }) {
         );
       })}
       <div className={`scoring-row ${testScore >= max ? "is-pass" : "is-partial"}`}>
-        <span>{passedLabel} (all {max} · some {some} · one {one} · none 0)</span><strong>+{testScore}</strong>
+        <span>{b.checks_passed ?? 0}/4 checks passed (4 → {max} · 3 → {share(0.75)} · 2 → {share(0.5)} · 1 → {share(0.25)} · 0 → 0)</span><strong>+{testScore}</strong>
       </div>
     </div>
   );

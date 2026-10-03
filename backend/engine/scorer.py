@@ -3,10 +3,11 @@ import json
 import math
 
 # Score per question, all of it decided by the test cases (see test_case_score below):
-# easy 5 questions x 4 = 20, medium 3 x 10 = 30, hard 2 x 25 = 50  ->  100 in total.
-QUESTION_CREDITS = {"easy": 4, "medium": 10, "hard": 25}
-LEVEL_QUESTION_COUNT = {"easy": 5, "medium": 3, "hard": 2}
-LEVEL_SCORE = {level: QUESTION_CREDITS[level] * LEVEL_QUESTION_COUNT[level] for level in QUESTION_CREDITS}
+# easy 5 questions x 4 = 20, medium 3 x 10 = 30, hard 3 questions = 50 (17 + 17 + 16) -> 100 in total.
+# A question may carry its own "credits" in missions.json; otherwise the level default applies.
+QUESTION_CREDITS = {"easy": 4, "medium": 10, "hard": 17}
+LEVEL_QUESTION_COUNT = {"easy": 5, "medium": 3, "hard": 3}
+LEVEL_SCORE = {"easy": 20, "medium": 30, "hard": 50}
 TOTAL_SCORE = sum(LEVEL_SCORE.values())
 
 
@@ -24,6 +25,10 @@ def _as_number(value):
 
 
 def _outputs_match(actual, expected):
+    # A Pie/Bar chart block returns the image plus the data it drew (see ChartResult):
+    # the data is what gets compared with the expected answer.
+    if expected != "chart" and hasattr(actual, "summary"):
+        actual = actual.summary
     if expected == "chart":
         return isinstance(actual, str) and actual.startswith("data:image/")
     actual_num, expected_num = _as_number(actual), _as_number(expected)
@@ -79,25 +84,21 @@ def _share(question_credits, fraction):
     return int(question_credits * fraction + 0.5)
 
 
-# Test evaluation: the whole question score, from the visible + hidden test cases.
-def test_case_score(test_results, question_credits=4):
-    """All test cases pass -> full score, two or more pass (not all) -> 3/4 of it, exactly one
-    passes -> 1/4 of it, none pass -> 0 (easy: 4 / 3 / 1 / 0, medium: 10 / 8 / 3 / 0, hard: 25 / 19 / 6 / 0)."""
-    total = len(test_results or [])
-    passed = sum(1 for t in test_results or [] if t.get("passed"))
-    if not total or not passed:
-        return 0
-    if passed == total:
-        return question_credits
-    return _share(question_credits, 0.25) if passed == 1 else _share(question_credits, 0.75)
+# The score of a question depends on how many of its four checks pass
+# (Mapping Flow, Logic building, Output compare with sample output, Output check):
+# 4 -> the full score, 3 -> 3/4, 2 -> 1/2, 1 -> 1/4, 0 -> nothing.
+CHECK_SHARE = {4: 1.0, 3: 0.75, 2: 0.5, 1: 0.25, 0: 0.0}
+
+
+def checks_score(checks_passed, question_credits=4):
+    return question_credits if checks_passed >= 4 else _share(question_credits, CHECK_SHARE.get(checks_passed, 0.0))
 
 
 def score_flow(flow_json, mission, test_results, graph_valid, base_output=None, credit_penalty=0):
-    """Full share of the question's credits per passing check, half a share for each failed check
-    once the participant has mapped something, and nothing at all for a skipped question."""
+    """""The question's credits by number of passing checks (see CHECK_SHARE); nothing for a skipped question."""""
     nodes = flow_json.get("nodes", [])
     edges = flow_json.get("edges", [])
-    question_credits = QUESTION_CREDITS.get(mission.get("difficulty"), QUESTION_CREDITS["easy"])
+    question_credits = mission.get("credits") or QUESTION_CREDITS.get(mission.get("difficulty"), QUESTION_CREDITS["easy"])
     credit_penalty = max(0, int(credit_penalty or 0))
 
     if not nodes or not edges:
@@ -108,7 +109,7 @@ def score_flow(flow_json, mission, test_results, graph_valid, base_output=None, 
             "all_passed": False,
             "attempted": False,
             "total_credits": 0,
-            "breakdown": {"mapping_flow": 0, "logic_building": 0, "sample_output": 0, "output_check": 0, "test_cases": 0, "hint_penalty": 0},
+            "breakdown": {"mapping_flow": 0, "logic_building": 0, "sample_output": 0, "output_check": 0, "checks_passed": 0, "score": 0, "hint_penalty": 0},
         }
 
     required_modules = mission.get("required_modules", [])
@@ -128,19 +129,15 @@ def score_flow(flow_json, mission, test_results, graph_valid, base_output=None, 
         "output_check": _outputs_match(base_output, mission.get("expected_check", mission.get("expected_output"))),
     }
 
-    # The four checks are shown to the participant as PASS/FAIL (1/0); only the test
-    # cases decide the credits.
     breakdown = {name: (1 if passed else 0) for name, passed in checks.items()}
-    test_score = test_case_score(test_results, question_credits)
-    if all(checks.values()):
-        # Mapping, logic, sample output and output check all pass: full score.
-        test_score = question_credits
-    total_credits = max(0, test_score - credit_penalty)
+    checks_passed = sum(breakdown.values())
+    awarded = checks_score(checks_passed, question_credits)
+    total_credits = max(0, awarded - credit_penalty)
     return {
         "round": mission.get("round", 1),
         "question_credits": question_credits,
         "all_passed": all(checks.values()),
         "attempted": True,
         "total_credits": total_credits,
-        "breakdown": {**breakdown, "test_cases": test_score, "tests_passed": sum(1 for t in test_results or [] if t.get("passed")), "tests_total": len(test_results or []), "hint_penalty": -credit_penalty},
+        "breakdown": {**breakdown, "checks_passed": checks_passed, "score": awarded, "hint_penalty": -credit_penalty},
     }

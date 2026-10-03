@@ -1,28 +1,60 @@
 {
-  "mission_01": [
+  "easy_1": [
     {
       "test_id": "T01",
-      "name": "Cart 1500",
-      "input": 1500,
-      "expected": "1652.0",
+      "name": "Age 20",
+      "input": 20,
+      "expected": "True",
       "hidden": false
     },
     {
       "test_id": "T02",
-      "name": "Cart 1000",
-      "input": 1000,
-      "expected": "1062.0",
+      "name": "Age 17",
+      "input": 17,
+      "expected": "False",
       "hidden": true
     },
     {
       "test_id": "T03",
-      "name": "Cart 2000",
-      "input": 2000,
-      "expected": "2242.0",
+      "name": "Age exactly 18",
+      "input": 18,
+      "expected": "True",
       "hidden": true
     }
   ],
-  "mission_02": [
+  "easy_2": [
+    {
+      "test_id": "T01",
+      "name": "70 kg, 1.75 m",
+      "input": {
+        "weight": 70,
+        "height": 1.75
+      },
+      "expected": "22.9",
+      "hidden": false
+    },
+    {
+      "test_id": "T02",
+      "name": "50 kg, 1.6 m",
+      "input": {
+        "weight": 50,
+        "height": 1.6
+      },
+      "expected": "19.5",
+      "hidden": true
+    },
+    {
+      "test_id": "T03",
+      "name": "90 kg, 1.8 m",
+      "input": {
+        "weight": 90,
+        "height": 1.8
+      },
+      "expected": "27.8",
+      "hidden": true
+    }
+  ],
+  "easy_3": [
     {
       "test_id": "T01",
       "name": "radar",
@@ -45,220 +77,358 @@
       "hidden": true
     }
   ],
-  "mission_06": [
+  "easy_4": [
     {
       "test_id": "T01",
-      "name": "Bill 2000",
+      "name": "98.6 °F",
+      "input": 98.6,
+      "expected": "37.0",
+      "hidden": false
+    },
+    {
+      "test_id": "T02",
+      "name": "212 °F",
+      "input": 212,
+      "expected": "100.0",
+      "hidden": true
+    },
+    {
+      "test_id": "T03",
+      "name": "32 °F",
+      "input": 32,
+      "expected": "0.0",
+      "hidden": true
+    }
+  ],
+  "easy_5": [
+    {
+      "test_id": "T01",
+      "name": "10, 20, 30, 40",
+      "input": [
+        10,
+        20,
+        30,
+        40
+      ],
+      "expected": "25.0",
+      "hidden": false
+    },
+    {
+      "test_id": "T02",
+      "name": "5, 15",
+      "input": [
+        5,
+        15
+      ],
+      "expected": "10.0",
+      "hidden": true
+    },
+    {
+      "test_id": "T03",
+      "name": "2, 4, 9",
+      "input": [
+        2,
+        4,
+        9
+      ],
+      "expected": "5.0",
+      "hidden": true
+    }
+  ],
+  "medium_1": [
+    {
+      "test_id": "T01",
+      "name": "Find 10 in 7 items",
+      "input": {
+        "array": [
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        "target": 10
+      },
+      "expected": "4",
+      "hidden": false
+    },
+    {
+      "test_id": "T02",
+      "name": "First item",
+      "input": {
+        "array": [
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        "target": 2
+      },
+      "expected": "0",
+      "hidden": true
+    },
+    {
+      "test_id": "T03",
+      "name": "Last item",
+      "input": {
+        "array": [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11
+        ],
+        "target": 11
+      },
+      "expected": "5",
+      "hidden": true
+    },
+    {
+      "test_id": "T04",
+      "name": "Target missing",
+      "input": {
+        "array": [
+          2,
+          4,
+          6,
+          8
+        ],
+        "target": 5
+      },
+      "expected": "-1",
+      "hidden": true
+    }
+  ],
+  "medium_2": [
+    {
+      "test_id": "T01",
+      "name": "2000",
       "input": 2000,
-      "expected": "550.0",
-      "hidden": false
-    },
-    {
-      "test_id": "T02",
-      "name": "Bill 1200",
-      "input": 1200,
-      "expected": "330.0",
-      "hidden": true
-    },
-    {
-      "test_id": "T03",
-      "name": "Bill 800",
-      "input": 800,
-      "expected": "220.0",
-      "hidden": true
-    }
-  ],
-  "mission_07": [
-    {
-      "test_id": "T01",
-      "name": "python coding",
-      "input": " python coding ",
-      "expected": "#PYTHONCODING",
-      "hidden": false
-    },
-    {
-      "test_id": "T02",
-      "name": "machine learning",
-      "input": " machine learning ",
-      "expected": "#MACHINELEARNING",
-      "hidden": true
-    },
-    {
-      "test_id": "T03",
-      "name": "data science",
-      "input": "data science",
-      "expected": "#DATASCIENCE",
-      "hidden": true
-    }
-  ],
-  "mission_08": [
-    {
-      "test_id": "T01",
-      "name": "113 F",
-      "input": 113,
       "expected": "True",
       "hidden": false
     },
     {
       "test_id": "T02",
-      "name": "90 F",
-      "input": 90,
+      "name": "1900 (century, not ÷400)",
+      "input": 1900,
       "expected": "False",
       "hidden": true
     },
     {
       "test_id": "T03",
-      "name": "104 F (exactly 40 C)",
-      "input": 104,
+      "name": "2024",
+      "input": 2024,
+      "expected": "True",
+      "hidden": true
+    },
+    {
+      "test_id": "T04",
+      "name": "2023",
+      "input": 2023,
       "expected": "False",
       "hidden": true
     }
   ],
-  "mission_03": [
+  "medium_3": [
     {
       "test_id": "T01",
-      "name": "Locker swap",
-      "input": {
-        "student_a_locker": 12,
-        "student_b_locker": 25
-      },
-      "expected": "Student A locker = 25\nStudent B locker = 12",
+      "name": "64, 25, 12, 22, 11",
+      "input": [
+        64,
+        25,
+        12,
+        22,
+        11
+      ],
+      "expected": "[11, 12, 22, 25, 64]",
       "hidden": false
     },
     {
       "test_id": "T02",
-      "name": "Locker swap 2",
-      "input": {
-        "student_a_locker": 7,
-        "student_b_locker": 40
-      },
-      "expected": "Student A locker = 40\nStudent B locker = 7",
-      "hidden": true
-    }
-  ],
-  "mission_04": [
-    {
-      "test_id": "T01",
-      "name": "Sarah 4.8 / 10h",
-      "input": {
-        "employee_name": "Sarah",
-        "rating_score": 4.8,
-        "extra_hours": 10
-      },
-      "expected": "600.0",
-      "hidden": false
-    },
-    {
-      "test_id": "T02",
-      "name": "Rating below 4.5",
-      "input": {
-        "employee_name": "Ravi",
-        "rating_score": 4.0,
-        "extra_hours": 8
-      },
-      "expected": "300.0",
+      "name": "Seven numbers",
+      "input": [
+        64,
+        34,
+        25,
+        12,
+        22,
+        11,
+        90
+      ],
+      "expected": "[11, 12, 22, 25, 34, 64, 90]",
       "hidden": true
     },
     {
       "test_id": "T03",
-      "name": "Rating exactly 4.5",
-      "input": {
-        "employee_name": "Anu",
-        "rating_score": 4.5,
-        "extra_hours": 4
-      },
-      "expected": "300.0",
+      "name": "Reverse order",
+      "input": [
+        5,
+        4,
+        3,
+        2,
+        1
+      ],
+      "expected": "[1, 2, 3, 4, 5]",
+      "hidden": true
+    },
+    {
+      "test_id": "T04",
+      "name": "Already sorted",
+      "input": [
+        1,
+        2,
+        3
+      ],
+      "expected": "[1, 2, 3]",
       "hidden": true
     }
   ],
-  "mission_09": [
+  "hard_1": [
     {
       "test_id": "T01",
-      "name": "Budget check",
+      "name": "Sample month",
       "input": {
-        "budget": 200,
-        "notebook": 80,
-        "pen": 30,
-        "pencil_box": 100
+        "Rent": 12000,
+        "Food": 6000,
+        "Transport": 3000,
+        "Entertainment": 3000
       },
-      "expected": "Budget exceeded by 10",
+      "expected": "Rent: 50% | Food: 25% | Transport: 12.5% | Entertainment: 12.5%",
       "hidden": false
     },
     {
       "test_id": "T02",
-      "name": "Budget check 2",
+      "name": "Total 20000",
       "input": {
-        "budget": 150,
-        "notebook": 60,
-        "pen": 40,
-        "pencil_box": 90
+        "Rent": 10000,
+        "Food": 5000,
+        "Transport": 3000,
+        "Entertainment": 2000
       },
-      "expected": "Budget exceeded by 40",
-      "hidden": true
-    }
-  ],
-  "mission_05": [
-    {
-      "test_id": "T01",
-      "name": "Eiffel Tower",
-      "input": "Eiffel Tower",
-      "expected": "Country: France | Continent: Europe | Hemisphere: Northern & Eastern Hemisphere",
-      "hidden": false
-    },
-    {
-      "test_id": "T02",
-      "name": "Statue of Liberty",
-      "input": "Statue of Liberty",
-      "expected": "Country: USA | Continent: North America | Hemisphere: Northern & Western Hemisphere",
+      "expected": "Rent: 50% | Food: 25% | Transport: 15% | Entertainment: 10%",
       "hidden": true
     },
     {
       "test_id": "T03",
-      "name": "Sydney Opera House",
-      "input": "Sydney Opera House",
-      "expected": "Country: Australia | Continent: Oceania | Hemisphere: Southern & Eastern Hemisphere",
+      "name": "Total 40000",
+      "input": {
+        "Rent": 15000,
+        "Food": 10000,
+        "Transport": 5000,
+        "Entertainment": 10000
+      },
+      "expected": "Rent: 37.5% | Food: 25% | Transport: 12.5% | Entertainment: 25%",
       "hidden": true
     }
   ],
-  "mission_10": [
+  "hard_2": [
     {
       "test_id": "T01",
-      "name": "Weekly attendance",
+      "name": "Sample week",
       "input": {
-        "x": [
-          "Monday",
-          "Tuesday",
-          "Wednesday",
-          "Thursday",
-          "Friday"
+        "sales": [
+          180,
+          220,
+          250,
+          150,
+          300
         ],
-        "y": [
-          35,
-          38,
-          36,
-          40,
-          37
-        ]
+        "target": 200
       },
-      "expected": "chart",
+      "expected": "Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target",
       "hidden": false
     },
     {
       "test_id": "T02",
-      "name": "Three days",
+      "name": "Exactly on target",
       "input": {
-        "x": [
-          "Mon",
-          "Tue",
-          "Wed"
+        "sales": [
+          200,
+          150,
+          250,
+          100,
+          220
         ],
-        "y": [
-          20,
-          25,
-          22
-        ]
+        "target": 200
       },
-      "expected": "chart",
+      "expected": "Mon: Above Target | Tue: Below Target | Wed: Above Target | Thu: Below Target | Fri: Above Target",
+      "hidden": true
+    },
+    {
+      "test_id": "T03",
+      "name": "All below",
+      "input": {
+        "sales": [
+          50,
+          60,
+          70,
+          80,
+          90
+        ],
+        "target": 100
+      },
+      "expected": "Mon: Below Target | Tue: Below Target | Wed: Below Target | Thu: Below Target | Fri: Below Target",
+      "hidden": true
+    }
+  ],
+  "hard_3": [
+    {
+      "test_id": "T01",
+      "name": "Sample class",
+      "input": [
+        95,
+        82,
+        67,
+        45,
+        88,
+        91,
+        60
+      ],
+      "expected": "A: 2 | B: 2 | C: 2 | F: 1",
+      "hidden": false
+    },
+    {
+      "test_id": "T02",
+      "name": "Boundaries",
+      "input": [
+        100,
+        92,
+        90,
+        75,
+        74
+      ],
+      "expected": "A: 3 | B: 1 | C: 1 | F: 0",
+      "hidden": true
+    },
+    {
+      "test_id": "T03",
+      "name": "Everyone fails",
+      "input": [
+        30,
+        40,
+        49
+      ],
+      "expected": "A: 0 | B: 0 | C: 0 | F: 3",
+      "hidden": true
+    },
+    {
+      "test_id": "T04",
+      "name": "Mixed class",
+      "input": [
+        89,
+        75,
+        50,
+        49,
+        90,
+        60
+      ],
+      "expected": "A: 1 | B: 2 | C: 2 | F: 1",
       "hidden": true
     }
   ]

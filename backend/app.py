@@ -978,7 +978,7 @@ def run_flow():
     """Evaluate a mapping against the visible + hidden test cases. Nothing is recorded:
     scores and progress are only saved by /api/submit."""
     payload = request.get_json() or {}
-    mission_id = payload.get("mission_id", "mission_01")
+    mission_id = payload.get("mission_id", "easy_1")
     flow = payload.get("flow", {})
     hint_penalty = HINT_SCORE_PENALTY if payload.get("hint_used") else 0
     team_id = payload.get("team_id", "TEAM_07")
@@ -1047,7 +1047,7 @@ def run_flow():
         if not t.get("hidden"):
             t_res["input"] = t_input
             t_res["expected"] = t_expected
-            t_res["received"] = t_out if t_success else "ERROR"
+            t_res["received"] = (getattr(t_out, "summary", t_out)) if t_success else "ERROR"
             
         test_results.append(t_res)
 
@@ -1063,6 +1063,7 @@ def run_flow():
         "success": True,
         "output": base_output,
         "is_chart": is_chart,
+        "chart_summary": getattr(base_output, "summary", None),
         "test_results": test_results,
         "credits": score_data["total_credits"],
         "scoring_breakdown": score_data["breakdown"],
@@ -1128,7 +1129,7 @@ def save_flow_draft():
 def submit_solution():
     payload = request.get_json() or {}
     team_id = payload.get("team_id", "TEAM_01")
-    mission_id = payload.get("mission_id", "mission_01")
+    mission_id = payload.get("mission_id", "easy_1")
     flow = payload.get("flow", {})
     hint_penalty = HINT_SCORE_PENALTY if payload.get("hint_used") else 0
 
@@ -1248,7 +1249,9 @@ def _team_earned_credits(team_id, progress):
     leaderboard score rises as soon as a submission earns credits.
     """
     records = progress.get(team_id, {})
-    return sum(record.get("best_credits", 0) for record in records.values())
+    # Only the current question set counts (records of retired questions are ignored).
+    current = {m["id"] for m in load_json("missions.json")}
+    return sum(record.get("best_credits", 0) for mid, record in records.items() if mid in current)
 
 
 def _mission_difficulty(mission):

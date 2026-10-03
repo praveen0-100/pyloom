@@ -32,7 +32,7 @@ export default function ParticipantConsole({ onRevoked }) {
 
   // ---- core flow state (refs mirror the latest values for timers / async handlers) ----
   const [missions, setMissions] = useState([]);
-  const [missionId, setMissionId] = useState("mission_01");
+  const [missionId, setMissionId] = useState("easy_1");
   const [mission, setMission] = useState(null);
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
@@ -41,7 +41,7 @@ export default function ParticipantConsole({ onRevoked }) {
   const [progress, setProgress] = useState({});
   const [gam, setGam] = useState(loadGamification);
   const [eventCredits, setEventCredits] = useState(() => loadEventCredits().credits);
-  const [trial, setTrial] = useState(() => loadTrial("mission_01"));
+  const [trial, setTrial] = useState(() => loadTrial("easy_1"));
   const [scoring, setScoring] = useState(NO_SCORING);
   const [evals, setEvals] = useState({});
   const [result, setResult] = useState(READY_RESULT);
@@ -67,7 +67,7 @@ export default function ParticipantConsole({ onRevoked }) {
   const progressRef = useRef({});
   const gamRef = useRef(gam);
   const trialRef = useRef(trial);
-  const missionIdRef = useRef("mission_01");
+  const missionIdRef = useRef("easy_1");
   const autosave = useRef({ ready: false, signature: "" });
   const activeTimerLevel = useRef(null);
   const exitedRef = useRef(false);
@@ -360,22 +360,12 @@ export default function ParticipantConsole({ onRevoked }) {
       // A previously scored question keeps showing its recorded score.
       const maxCredits = QUESTION_CREDITS[level] || 4;
       setScoring(saved && saved.scoring ? { credits: saved.credits || 0, max: maxCredits, breakdown: saved.scoring } : { ...NO_SCORING, max: maxCredits });
-      setEvals(saved && saved.scoring ? { test_cases: testCaseEval(saved.scoring) } : {});
+      setEvals({});
       autosave.current.ready = true;
     } catch (err) {
       autosave.current.ready = true;
       console.error("Failed to load mission:", err);
     }
-  }
-
-  function testCaseEval(b) {
-    if (!b || !b.tests_total) return undefined;
-    const all = b.tests_passed === b.tests_total;
-    return {
-      status: all ? "PASS" : `${b.tests_passed}/${b.tests_total}`,
-      cls: all ? "pass" : "fail",
-      title: all ? "" : "Some test cases failed - make sure your flow calculates the answer from the input (e.g. Output prints {value}) instead of a fixed value."
-    };
   }
 
   // ---- boot (runs once after the approval gate) ----
@@ -393,7 +383,7 @@ export default function ParticipantConsole({ onRevoked }) {
       await loadParticipantProgress();
       // Reopen the question the participant was last on.
       const last = localStorage.getItem(`pyloom-last-mission-${getTeamId()}`);
-      await loadMissionData(live.current.missions.some((m) => m.id === last) ? last : "mission_01");
+      await loadMissionData(live.current.missions.some((m) => m.id === last) ? last : "easy_1");
       let exited = false;
       try { exited = localStorage.getItem(EXIT_STORAGE_PREFIX + getTeamId()) === "1"; } catch (_) { /* ignore */ }
       if (exited) showExitSlide();
@@ -512,14 +502,12 @@ export default function ParticipantConsole({ onRevoked }) {
   };
 
   // ---- run / submit ----
-  // The four checks are 1 (pass) / 0 (review); the test-case row shows passed/total.
+  // The four checks are 1 (pass) / 0 (review); the score row shows the credits they earn.
   const applyBreakdownEvals = (breakdown) => {
     setEvals((prev) => {
       const next = { ...prev };
-      const tc = testCaseEval(breakdown);
-      if (tc) next.test_cases = tc;
       Object.entries(breakdown || {}).forEach(([key, score]) => {
-        if (key === "test_cases" || !["mapping_flow", "logic_building", "sample_output", "output_check"].includes(key)) return;
+        if (!["mapping_flow", "logic_building", "sample_output", "output_check"].includes(key)) return;
         const passed = score >= 1;
         next[key] = { status: passed ? "PASS" : "REVIEW", cls: passed ? "pass" : "fail" };
       });
@@ -544,7 +532,7 @@ export default function ParticipantConsole({ onRevoked }) {
         return;
       }
       showToast("flow successfully mapped", "success");
-      setResult({ text: typeof res.output === "object" ? JSON.stringify(res.output, null, 2) : String(res.output), error: false });
+      setResult({ text: res.is_chart ? (res.chart_summary || "Chart drawn.") : typeof res.output === "object" ? JSON.stringify(res.output, null, 2) : String(res.output), error: false });
       setChartSrc(res.is_chart ? res.output : "");
       applyBreakdownEvals(res.scoring_breakdown);
       const outputIncorrect = Object.entries(res.scoring_breakdown || {})

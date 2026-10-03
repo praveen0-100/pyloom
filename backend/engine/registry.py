@@ -17,7 +17,16 @@ from backend.modules.logic_modules import (
 )
 from backend.modules.geo_modules import execute_lookup, execute_hemisphere
 from backend.modules.chart_modules import (
-    execute_line_chart
+    execute_line_chart, execute_pie_chart, execute_bar_chart
+)
+from backend.modules.math_modules import execute_square, execute_convert
+from backend.modules.algo_modules import (
+    execute_midpoint, execute_binary_compare, execute_repeat_search,
+    execute_div4_check, execute_century_rule, execute_compare_swap, execute_pass_repeat
+)
+from backend.modules.analysis_modules import (
+    execute_total_sum, execute_percentage, execute_target_compare,
+    execute_grade_classifier, execute_count_grades
 )
 
 MODULE_REGISTRY = {
@@ -50,5 +59,21 @@ MODULE_REGISTRY = {
     "IfElse": execute_ifelse,
     "Lookup": execute_lookup,
     "Hemisphere": execute_hemisphere,
+    "Square": execute_square,
+    "Convert": execute_convert,
+    "Midpoint": execute_midpoint,
+    "BinaryCompare": execute_binary_compare,
+    "RepeatSearch": execute_repeat_search,
+    "Div4Check": execute_div4_check,
+    "CenturyRule": execute_century_rule,
+    "CompareSwap": execute_compare_swap,
+    "PassRepeat": execute_pass_repeat,
+    "TotalSum": execute_total_sum,
+    "Percentage": execute_percentage,
+    "TargetCompare": execute_target_compare,
+    "GradeClassifier": execute_grade_classifier,
+    "CountGrades": execute_count_grades,
+    "PieChart": execute_pie_chart,
+    "BarChart": execute_bar_chart,
     "Output": execute_output
 }

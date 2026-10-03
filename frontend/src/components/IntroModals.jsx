@@ -34,16 +34,16 @@ export function InstructionsModal({ open, first, onNext, onClose }) {
       <p>Welcome to PYLOOM. You solve each question by <strong>dragging nodes onto the canvas, connecting them and typing the question&apos;s input</strong>, so the flow produces the expected output.</p>
       <h4>How the event works</h4>
       <ul>
-        <li><strong>3 levels, 10 questions:</strong> Easy (5 questions), Medium (3) and Hard (2). Medium and Hard open after you have submitted every question of the level before.</li>
+        <li><strong>3 levels, 11 questions:</strong> Easy (5 questions), Medium (3) and Hard (3). Medium and Hard open after you have submitted every question of the level before.</li>
         <li><strong>Timers:</strong> a main timer of 45 minutes, and a level timer of 20 min (Easy), 15 min (Medium) and 10 min (Hard). Everyone sees the same time, started and paused only by the admin.</li>
         <li><strong>Build a flow:</strong> drag nodes from the left list, type the question input into the Input node, set each node&apos;s fields, then click an output dot and an input dot to connect. Double-click a connection to unlink it.</li>
-        <li><strong>Run flow</strong> only checks your mapping against the test cases (Testing evaluation). Nothing is saved or scored.</li>
+        <li><strong>Run flow</strong> only checks your mapping (the 4 checks of the Testing evaluation). Nothing is saved or scored.</li>
         <li><strong>Submit solution</strong> records your progress and score and updates the leaderboard. Your best score per question is kept.</li>
         <li><strong>Mapping trials:</strong> you have 3 wrong runs per question; after that the Hint button helps step by step.</li>
       </ul>
       <h4>Score and credits</h4>
       <ul>
-        <li><strong>Score (100 in total):</strong> Easy 4 per question (20), Medium 10 per question (30), Hard 25 per question (50). Passing only some test cases earns part of the question&apos;s score.</li>
+        <li><strong>Score (100 in total):</strong> Easy 4 per question (20), Medium 10 per question (30), Hard 17 / 17 / 16 per question (50). The score depends on how many of the 4 checks pass (Mapping Flow, Logic building, Output compare with sample output, Output check): all 4 earn the full score, 3 earn three quarters, 2 earn half, 1 earns a quarter, none earns 0.</li>
         <li><strong>Credits</strong> are used for hints. You start with 10 credits; each hint costs 3. Finish every question of a level and enter the next one to get +10 credits.</li>
       </ul>
     </Shell>

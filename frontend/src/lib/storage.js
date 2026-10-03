@@ -1,6 +1,6 @@
 /** localStorage-backed participant state: event credits, trials, gamification. */
 export const MAX_MAPPING_TRIALS = 3;
-export const QUESTIONS_PER_LEVEL = { easy: 5, medium: 3, hard: 2 };
+export const QUESTIONS_PER_LEVEL = { easy: 5, medium: 3, hard: 3 };
 export const LEVEL_ORDER = ["easy", "medium", "hard"];
 // Score per question and per level: easy 5 x 4 = 20, medium 3 x 10 = 30, hard 2 x 25 = 50 (total 100).
 export const QUESTION_CREDITS = { easy: 4, medium: 10, hard: 25 };

@@ -56,3 +56,83 @@ def execute_line_chart(val, config=None):
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
 
     return f"data:image/png;base64,{encoded}"
+
+
+# ---------------------------------------------------------------- Pie & Bar charts
+from backend.modules.analysis_modules import PercentDict
+
+
+class ChartResult(str):
+    """The chart image (a data URI) that also remembers the data it drew, in `summary`.
+
+    It behaves like the plain image string everywhere (so the page can show it), while the
+    checker compares `summary` - e.g. 'Rent: 50% | Food: 25%' - with the expected answer."""
+
+    summary = ""
+
+    def __new__(cls, image, summary):
+        obj = super().__new__(cls, image)
+        obj.summary = summary
+        return obj
+
+
+def _png_data_uri(figure):
+    buffer = io.BytesIO()
+    figure.savefig(buffer, format="png", dpi=150)
+    plt.close(figure)
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _fmt(number):
+    return f"{number:g}"
+
+
+PIE_COLORS = ["#3b82f6", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#ec4899"]
+
+
+def execute_pie_chart(val, config=None):
+    """Pie Chart Render: one slice per category (percentages or counts)."""
+    if not isinstance(val, dict) or not val or not all(isinstance(v, (int, float)) for v in val.values()):
+        raise ValueError("Pie Chart needs category values, e.g. the output of Percentage Calculator.")
+    suffix = "%" if isinstance(val, PercentDict) else ""
+    summary = " | ".join(f"{k}: {_fmt(v)}{suffix}" for k, v in val.items())
+    if not HAS_MATPLOTLIB:
+        return ChartResult("[Chart Output: Matplotlib package not installed]", summary)
+
+    shown = {k: v for k, v in val.items() if v > 0}  # a 0 slice has no area
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.pie(
+        list(shown.values()),
+        labels=[f"{k} ({_fmt(v)}{suffix})" for k, v in shown.items()],
+        colors=PIE_COLORS[:len(shown)],
+        startangle=90, counterclock=False,
+        wedgeprops={"edgecolor": "white", "linewidth": 2},
+    )
+    ax.set_title((config or {}).get("title") or "PYLOOM Pie Chart", fontsize=12, fontweight="bold", color="#1e293b")
+    ax.axis("equal")
+    fig.tight_layout()
+    return ChartResult(_png_data_uri(fig), summary)
+
+
+def execute_bar_chart(val, config=None):
+    """Bar Chart Render: one bar per day, green = Above Target, red = Below Target."""
+    if not isinstance(val, dict) or not all(k in val for k in ("labels", "values", "status")):
+        raise ValueError("Bar Chart needs the result of the Target Comparison block.")
+    summary = " | ".join(f"{label}: {status}" for label, status in zip(val["labels"], val["status"]))
+    if not HAS_MATPLOTLIB:
+        return ChartResult("[Chart Output: Matplotlib package not installed]", summary)
+
+    colors = ["#16a34a" if s == "Above Target" else "#dc2626" for s in val["status"]]
+    fig, ax = plt.subplots(figsize=(6, 4))
+    bars = ax.bar(val["labels"], val["values"], color=colors)
+    ax.bar_label(bars, fontsize=9)
+    if "target" in val:
+        ax.axhline(val["target"], color="#475569", linestyle="--", linewidth=1.5)
+        ax.text(-0.45, val["target"], f"Target {_fmt(val['target'])}", va="bottom", ha="left", fontsize=9, color="#475569")
+    ax.set_title((config or {}).get("title") or "PYLOOM Bar Chart", fontsize=12, fontweight="bold", color="#1e293b")
+    ax.set_ylabel("Sales", fontsize=10, color="#64748b")
+    ax.legend(handles=[plt.Rectangle((0, 0), 1, 1, color="#16a34a"), plt.Rectangle((0, 0), 1, 1, color="#dc2626")],
+              labels=["Above Target", "Below Target"], fontsize=8, loc="upper left")
+    ax.grid(True, axis="y", linestyle="--", alpha=0.4)
+    fig.tight_layout()
+    return ChartResult(_png_data_uri(fig), summary)

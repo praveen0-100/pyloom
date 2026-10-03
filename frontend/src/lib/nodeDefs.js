@@ -68,7 +68,14 @@ const CATEGORY = {
   Hemisphere: ["cat-logic", "HM"],
   Uppercase: ["cat-string", "AA"], Lowercase: ["cat-string", "aa"], Replace: ["cat-string", "RP"],
   Split: ["cat-string", "SP"], Join: ["cat-string", "JN"], Pattern: ["cat-string", "★"],
-  Filter: ["cat-logic", "FL"], Sort: ["cat-logic", "SR"], LineChart: ["cat-chart", "📈"]
+  Filter: ["cat-logic", "FL"], Sort: ["cat-logic", "SR"], LineChart: ["cat-chart", "📈"],
+  Square: ["cat-math", "x²"], Convert: ["cat-math", "°"],
+  Midpoint: ["cat-algo", "MID"], BinaryCompare: ["cat-algo", "<=>"], RepeatSearch: ["cat-algo", "↻"],
+  Div4Check: ["cat-algo", "÷4"], CenturyRule: ["cat-algo", "100"],
+  CompareSwap: ["cat-algo", "⇄"], PassRepeat: ["cat-algo", "↻"],
+  TotalSum: ["cat-chart", "Σ"], Percentage: ["cat-chart", "%"], TargetCompare: ["cat-chart", "≥T"],
+  GradeClassifier: ["cat-chart", "A-F"], CountGrades: ["cat-chart", "#"],
+  PieChart: ["cat-chart", "◔"], BarChart: ["cat-chart", "▮▮"]
 };
 
 export function getModuleCategory(type) {
@@ -87,27 +94,46 @@ const DESC = {
   Lookup: "Finds landmark country & coordinates", Hemisphere: "Classifies hemisphere from coordinates",
   Uppercase: "Converts string to uppercase", Replace: "Replaces search string matches",
   Filter: "Filters list items within range", Pattern: "Generates N-level triangle pattern",
-  LineChart: "Renders Matplotlib line chart"
+  LineChart: "Renders Matplotlib line chart",
+  Square: "Multiplies a number by itself", Convert: "Fahrenheit → Celsius: (F-32) × 5 / 9",
+  Midpoint: "Picks the middle index of the search range",
+  BinaryCompare: "Middle = target? Else keep the left or right half",
+  RepeatSearch: "Repeats Midpoint + Compare, returns the index",
+  Div4Check: "Is the year divisible by 4?",
+  CenturyRule: "Century years must also be divisible by 400",
+  CompareSwap: "One pass: swap neighbours if left > right",
+  PassRepeat: "Repeats passes until nothing is left to swap",
+  TotalSum: "Adds up all the category amounts",
+  Percentage: "Each amount ÷ total × 100",
+  TargetCompare: "Marks each day Above / Below the target",
+  GradeClassifier: "Score → grade: A ≥90, B 75-89, C 50-74, F <50",
+  CountGrades: "Counts the students in each grade",
+  PieChart: "Draws a pie chart", BarChart: "Draws a green / red bar chart"
 };
 export const getModuleDesc = (type) => DESC[type] || "Processes flow data";
 
-// Sidebar module library, grouped exactly like the original palette:
+// Sidebar module library: the blocks the PYLOOM question set uses, grouped by what they do.
 // [type, icon, description, optional icon class override]
 export const MODULE_LIBRARY = [
   { title: "Data & I/O", cls: "cat-data", modules: [
-    ["Input", "IN", "Data source input node"], ["List", "LS", "Convert to Python list"],
-    ["Dictionary", "DC", "Create Python dict"], ["Output", "OUT", "Final result output node"],
-    ["Get", "GT", "Read a key from a dictionary"] ] },
-  { title: "Math & statistics", cls: "cat-math", modules: [
-    ["Sum", "∑", "Sum list elements"], ["Length", "LN", "Calculate total count"],
-    ["Average", "AVG", "Calculate mean average"], ["Add", "+", "Add two values"],
-    ["Subtract", "-", "Subtract two values"], ["Multiply", "×", "Multiply values"],
-    ["Divide", "÷", "Divide numerator/denom"], ["Round", "RD", "Round to decimals"] ] },
-  { title: "String & formatting", cls: "cat-string", modules: [
-    ["Uppercase", "AA", "Convert string to UPPER"], ["Replace", "RP", "Find & replace text"],
-    ["Reverse", "RV", "Reverse text"], ["Pattern", "★", "Star triangle generator"] ] },
-  { title: "Logic & charts", cls: "cat-logic", modules: [
-    ["Compare", "?", "Returns True / False"], ["IfElse", "IF", "Pick a value by condition"],
-    ["Lookup", "LK", "Landmark table lookup"], ["Hemisphere", "HM", "Classify hemisphere"],
-    ["Filter", "FL", "Filter range values"], ["LineChart", "📈", "Matplotlib chart renderer", "cat-chart"] ] }
+    ["Input", "IN", "Data source input node"], ["Get", "GT", "Read a key from a dictionary"],
+    ["Output", "OUT", "Final result output node"] ] },
+  { title: "Math", cls: "cat-math", modules: [
+    ["Sum", "∑", "Sum list elements"], ["Length", "LN", "Count the items"],
+    ["Add", "+", "Add two values"], ["Subtract", "-", "Subtract two values"],
+    ["Multiply", "×", "Multiply values"], ["Divide", "÷", "First input ÷ second input"],
+    ["Square", "x²", "Multiply a number by itself"], ["Round", "RD", "Round to decimals"],
+    ["Convert", "°", "Fahrenheit → Celsius"] ] },
+  { title: "Logic & text", cls: "cat-logic", modules: [
+    ["Compare", "?", "Returns True / False"], ["Reverse", "RV", "Reverse text", "cat-string"] ] },
+  { title: "Algorithms (DSA)", cls: "cat-algo", modules: [
+    ["Midpoint", "MID", "Middle index of the range"], ["BinaryCompare", "<=>", "Middle vs target"],
+    ["RepeatSearch", "↻", "Repeat until found"], ["Div4Check", "÷4", "Divisible by 4?"],
+    ["CenturyRule", "100", "÷100 needs ÷400"], ["CompareSwap", "⇄", "One bubble-sort pass"],
+    ["PassRepeat", "↻", "Repeat passes until sorted"] ] },
+  { title: "Analysis & charts", cls: "cat-chart", modules: [
+    ["TotalSum", "Σ", "Total of all categories"], ["Percentage", "%", "Share of the total"],
+    ["TargetCompare", "≥T", "Above / Below target"], ["GradeClassifier", "A-F", "Score → grade"],
+    ["CountGrades", "#", "Students per grade"], ["PieChart", "◔", "Pie chart render"],
+    ["BarChart", "▮▮", "Bar chart render"] ] }
 ];
