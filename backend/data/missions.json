@@ -261,7 +261,7 @@
     "expected_output": "Rent: 50% | Food: 25% | Transport: 12.5% | Entertainment: 12.5%",
     "image": "/assets/hard_expense_pie.png",
     "difficulty": "hard",
-    "credits": 17,
+    "credits": 25,
     "required_modules": [
       "Input",
       "TotalSum",
@@ -305,7 +305,7 @@
     "expected_output": "Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target",
     "image": "/assets/hard_sales_bar.png",
     "difficulty": "hard",
-    "credits": 17,
+    "credits": 25,
     "required_modules": [
       "Input",
       "TargetCompare",
@@ -327,49 +327,6 @@
         "BarChart → Output."
       ],
       "output": "Leave the Output format empty. Run Flow must draw the bar chart and show Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target."
-    }
-  },
-  {
-    "id": "hard_3",
-    "title": "Student Grade Distribution Pie Chart",
-    "description": "Given a list of student scores, give each score a grade (A: 90 or more, B: 75-89, C: 50-74, F: below 50), count how many students got each grade, and draw the distribution as a pie chart.",
-    "input": [
-      95,
-      82,
-      67,
-      45,
-      88,
-      91,
-      60
-    ],
-    "operation": "Score → grade; count the students per grade; draw a pie chart",
-    "expected_output": "A: 2 | B: 2 | C: 2 | F: 1",
-    "image": "/assets/hard_grade_pie.png",
-    "difficulty": "hard",
-    "credits": 16,
-    "required_modules": [
-      "Input",
-      "GradeClassifier",
-      "CountGrades",
-      "PieChart",
-      "Output"
-    ],
-    "prefilled_config": {
-      "PieChart": {
-        "title": "Student Grade Distribution"
-      }
-    },
-    "round": 2,
-    "time_limit_minutes": 10,
-    "guide": {
-      "input": "Drag an Input node and set Input Data to [95, 82, 67, 45, 88, 91, 60].",
-      "mapping": [
-        "Input → GradeClassifier. It turns every score into a grade (95 → A, 82 → B, 67 → C, 45 → F, 88 → B, 91 → A, 60 → C).",
-        "GradeClassifier → CountGrades. It counts the students in each grade: A 2, B 2, C 2, F 1.",
-        "CountGrades → PieChart. It draws one slice per grade (the chart title is already filled in).",
-        "PieChart → Output."
-      ],
-      "output": "Leave the Output format empty. Run Flow must draw the pie chart and show A: 2 | B: 2 | C: 2 | F: 1."
     }
   }
 ]

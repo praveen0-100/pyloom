@@ -30,9 +30,9 @@ PYLOOM is a browser-based visual Python programming competition platform. Partic
 
 | Topic | Behaviour |
 |---|---|
-| Levels | Easy (5 questions), Medium (3), Hard (3) - the set from `PYLOOM_Question_Set.pdf` (see below). Medium/Hard open after every question of the previous level has been submitted. |
+| Levels | Easy (5 questions), Medium (3), Hard (2) - the set from `PYLOOM_Question_Set.pdf` (see below). Medium/Hard open after every question of the previous level has been submitted. |
 | Timers | Main 45 min. Level timers: Easy 20, Medium 15, Hard 10 min. One shared clock for everyone, controlled only by the admin; logging out/in never changes it. |
-| Score (100 total) | Easy 4 per question (20), Medium 10 (30), Hard 17 / 17 / 16 (50). By checks passed (Mapping Flow, Logic building, Output compare with sample output, Output check): 4 = full score, 3 = 3/4, 2 = 1/2, 1 = 1/4, 0 = nothing. Best score per question is kept. |
+| Score (100 total) | Easy 4 per question (20), Medium 10 (30), Hard 25 (50). By checks passed (Mapping Flow, Logic building, Output compare with sample output, Output check): 4 = full score, 3 = 3/4, 2 = 1/2, 1 = 1/4, 0 = nothing. Best score per question is kept. |
 | Event credits | Start at 10. Hints cost 3. Completing a level and entering the next adds +10. |
 | Access | A participant only enters the canvas after the admin approves them. Every new login needs approval again. |
 | Strict mode | Full screen is mandatory. Leaving full screen, switching tab/window, split screen or losing focus locks that participant, alerts the admin and blocks Run/Submit until the admin unlocks them. One open console per participant (a newer tab supersedes an older one). Dev-tool shortcuts and the context menu are disabled. |
@@ -57,7 +57,6 @@ Questions live in `backend/data/missions.json` (each with a step-by-step `guide`
 | Medium | 3 Sorting a List (Bubble Sort) | Input → CompareSwap → PassRepeat → Output |
 | Hard | 1 Monthly Expense Pie Chart | Input → TotalSum → Percentage → PieChart → Output |
 | Hard | 2 Weekly Sales Bar Chart | Input → TargetCompare → BarChart → Output |
-| Hard | 3 Student Grade Pie Chart | Input → GradeClassifier → CountGrades → PieChart → Output |
 
 Chart blocks return the picture *and* the data they drew (`ChartResult.summary`); the checker compares that data, so a chart question is graded like any other. Reference pictures are in `frontend/public/assets/`. Division is ordered: the first connection into **Divide** is the dividend.
 

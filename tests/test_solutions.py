@@ -46,7 +46,6 @@ SOLUTIONS = {
     "medium_3": chain(("CompareSwap", {}), ("PassRepeat", {})),
     "hard_1": chain(("TotalSum", {}), ("Percentage", {}), ("PieChart", {"title": "Monthly Expense Pie Chart"})),
     "hard_2": chain(("TargetCompare", {}), ("BarChart", {"title": "Weekly Sales Bar Chart"})),
-    "hard_3": chain(("GradeClassifier", {}), ("CountGrades", {}), ("PieChart", {"title": "Student Grade Distribution"})),
 }
 
 
@@ -92,7 +91,7 @@ class TestReferenceSolutions(unittest.TestCase):
                 self.assertEqual(body["credits"], body["question_credits"])
 
     def test_question_set_matches_the_pdf(self):
-        levels = {"easy": 5, "medium": 3, "hard": 3}
+        levels = {"easy": 5, "medium": 3, "hard": 2}
         for level, count in levels.items():
             self.assertEqual(sum(1 for m in MISSIONS.values() if m["difficulty"] == level), count)
         default = {"easy": 4, "medium": 10}
@@ -109,7 +108,7 @@ class TestReferenceSolutions(unittest.TestCase):
                 self.assertEqual(MISSIONS[mission_id]["expected_output"], text)
 
     def test_charts_return_an_image_and_their_data(self):
-        for mission_id in ("hard_1", "hard_2", "hard_3"):
+        for mission_id in ("hard_1", "hard_2"):
             with self.subTest(mission=mission_id):
                 body = self.run_flow(mission_id, with_input(mission_id, SOLUTIONS[mission_id]))
                 self.assertTrue(body["is_chart"])
