@@ -32,6 +32,7 @@ PYLOOM is a browser-based visual Python programming competition platform. Partic
 |---|---|
 | Levels | Easy (5 questions), Medium (3), Hard (2) - the set from `PYLOOM_Question_Set.pdf` (see below). Medium/Hard open after every question of the previous level has been submitted. |
 | Timers | Main 45 min. Level timers: Easy 20, Medium 15, Hard 10 min. One shared clock for everyone, controlled only by the admin; logging out/in never changes it. |
+| Time alerts | A popup + toast appears when the main timer reaches 20 min left. Level alerts: Easy 10 min and 10 s, Medium 5 min and 10 s, Hard 5 min, 2 min and 10 s. |
 | Score (100 total) | Easy 4 per question (20), Medium 10 (30), Hard 25 (50). By checks passed (Mapping Flow, Logic building, Output compare with sample output, Output check): 4 = full score, 3 = 3/4, 2 = 1/2, 1 = 1/4, 0 = nothing. Best score per question is kept. |
 | Event credits | Start at 10. Hints cost 3. Completing a level and entering the next adds +10. |
 | Access | A participant only enters the canvas after the admin approves them. Every new login needs approval again. |

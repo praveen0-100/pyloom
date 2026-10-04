@@ -18,6 +18,8 @@ import {
 } from "../lib/storage";
 import { useSharedTimer } from "../hooks/useSharedTimer";
 import { useParticipantLock } from "../hooks/useParticipantLock";
+import { useTimeAlerts } from "../hooks/useTimeAlerts";
+import TimeAlertModal from "../components/TimeAlertModal";
 
 const EXIT_STORAGE_PREFIX = "pyloom-exited-";
 const READY_RESULT = { text: "Ready to execute flow.", error: false };
@@ -52,6 +54,8 @@ export default function ParticipantConsole({ onRevoked }) {
   const [lockReason, setLockReason] = useState("");
   const [submitResult, setSubmitResult] = useState(null);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [timeAlert, setTimeAlert] = useState(null);
+  const timedOutLevels = useRef(new Set());
   // Right after login: 1) instructions, then 2) rules (first time only). The header button reopens them.
   const introKey = `pyloom-intro-seen-${getTeamId()}`;
   const [intro, setIntro] = useState(() => {
@@ -134,6 +138,11 @@ export default function ParticipantConsole({ onRevoked }) {
     onMainExpired: () => applyTimedLock()
   });
 
+  useTimeAlerts(timer, (a) => {
+    setTimeAlert(a);
+    showToast(`${a.title}: ${a.message}`, a.urgent ? "error" : "success");
+  });
+
   // When the main timer ends everything is locked. When a level timer ends only questions of
   // THAT level are locked; the participant can switch levels and keep solving.
   const lockReasonRef = useRef("");
@@ -169,6 +178,7 @@ export default function ParticipantConsole({ onRevoked }) {
   function advanceLevelOnTimeout() {
     const level = currentMissionLevel();
     const nextLevel = LEVEL_ORDER[LEVEL_ORDER.indexOf(level) + 1];
+    timedOutLevels.current.add(level);
     if (!nextLevel) return;
     const inNext = live.current.missions.filter((m) => levelOf(m) === nextLevel);
     if (!inNext.length) return;
@@ -414,7 +424,23 @@ export default function ParticipantConsole({ onRevoked }) {
     const next = questions[currentIndex + direction];
     if (next) loadMissionData(next.id);
   };
+  // A level opens only after every question of the level before it has been submitted
+  // (or that level's timer ran out).
+  const levelDone = (level) => {
+    const inLevel = live.current.missions.filter((m) => levelOf(m) === level);
+    return timedOutLevels.current.has(level) || (inLevel.length > 0 && inLevel.every((m) =>
+      (progressRef.current[m.id]?.attempts || 0) > 0 || gamRef.current.completed.includes(m.id)));
+  };
+  const levelOpen = (level) => {
+    const prev = LEVEL_ORDER[LEVEL_ORDER.indexOf(level) - 1];
+    return !prev || (levelOpen(prev) && levelDone(prev));
+  };
   const onLevelTab = (level) => {
+    if (!levelOpen(level)) {
+      const prev = LEVEL_ORDER[LEVEL_ORDER.indexOf(level) - 1];
+      showToast(`Locked: submit every ${prev} question first to open ${level}.`, "error");
+      return;
+    }
     const first = missions.find((m) => levelOf(m) === level);
     if (first) loadMissionData(first.id);
   };
@@ -660,6 +686,7 @@ export default function ParticipantConsole({ onRevoked }) {
           totalMissions={missions.length}
           onHint={openHint}
           onLevelTab={onLevelTab}
+          levelOpen={levelOpen}
           onSelectQuestion={loadMissionData}
           onNavigate={navigateQuestion}
           onExit={() => setExit({ open: true, view: "confirm", score: null })}
@@ -690,6 +717,8 @@ export default function ParticipantConsole({ onRevoked }) {
         onAgree={finishIntro}
         onClose={() => setIntro({ step: null, first: false })}
       />
+
+      <TimeAlertModal alert={timeAlert} onClose={() => setTimeAlert(null)} />
 
       <LogoutModal open={logoutOpen} busy={loggingOut} onCancel={() => setLogoutOpen(false)} onConfirm={confirmLogout} />
 

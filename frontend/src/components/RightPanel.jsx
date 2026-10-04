@@ -36,7 +36,7 @@ function ScoringBreakdown({ scoring }) {
 export default function RightPanel({
   mission, currentLevel, questions, missionId, currentIndex, isComplete, questionStatus,
   evals, scoring, result, chartSrc, gam, totalMissions,
-  onHint, onLevelTab, onSelectQuestion, onNavigate, onExit
+  onHint, onLevelTab, levelOpen, onSelectQuestion, onNavigate, onExit
 }) {
   const badges = [];
   if (gam.completed.length >= 1) badges.push("First solve");
@@ -58,13 +58,14 @@ export default function RightPanel({
             <button
               key={level}
               type="button"
-              className={`level-tab${currentLevel === level ? " is-active" : ""}`}
+              className={`level-tab${currentLevel === level ? " is-active" : ""}${levelOpen && !levelOpen(level) ? " is-locked" : ""}`}
+              aria-disabled={levelOpen && !levelOpen(level) ? "true" : undefined}
               data-level={level}
               role="tab"
               aria-selected={currentLevel === level ? "true" : "false"}
               onClick={() => onLevelTab(level)}
             >
-              {level[0].toUpperCase() + level.slice(1)} <span className="level-count">{QUESTIONS_PER_LEVEL[level]}</span>
+              {levelOpen && !levelOpen(level) ? "🔒 " : ""}{level[0].toUpperCase() + level.slice(1)} <span className="level-count">{QUESTIONS_PER_LEVEL[level]}</span>
             </button>
           ))}
         </div>
