@@ -6,6 +6,7 @@ import os
 import re
 import sys
 import copy
+import hashlib
 import hmac
 import json
 import threading
@@ -185,7 +186,13 @@ _load_dotenv()
 
 app = Flask(__name__, static_folder="../frontend/dist", static_url_path="")
 CORS(app)
-app.secret_key = os.environ.get("PYLOOM_ADMIN_SESSION_SECRET") or os.urandom(32).hex()
+# Every serverless instance must sign admin sessions with the same key, otherwise the admin is
+# logged out whenever a request lands on another instance. Without an explicit secret, derive a
+# stable one from the deployment's own secrets (never a per-process random value).
+app.secret_key = os.environ.get("PYLOOM_ADMIN_SESSION_SECRET") or hashlib.sha256(
+    "|".join([os.environ.get("PYLOOM_ADMIN_USERNAME", ""), os.environ.get("PYLOOM_ADMIN_PASSWORD", ""),
+              os.environ.get("SUPABASE_SERVICE_KEY", ""), "pyloom-session"]).encode()
+).hexdigest()
 
 @app.before_request
 def _ensure_migrated():
