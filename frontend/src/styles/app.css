@@ -134,3 +134,4 @@ img, svg, video { max-width: 100%; }
 .module-name { font-size: 0.875rem; }
 
 .mission-operation-code { margin: 4px 0 0; padding: 8px 10px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-sm, 6px); font-family: ui-monospace, Consolas, monospace; font-size: 0.75rem; line-height: 1.45; white-space: pre; overflow-x: auto; color: var(--text-main); }
+.mission-operation-code.is-structured { font-family: inherit; font-size: 0.78rem; white-space: pre-wrap; }

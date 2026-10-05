@@ -165,7 +165,7 @@
         14
       ]
     },
-    "operation": "target = 10\nindex, low, high = -1, 0, len(array) - 1\nwhile low <= high:\n    mid = (low + high) // 2\n    if array[mid] == target:\n        index = mid\n        break\n    elif target < array[mid]:\n        high = mid - 1\n    else:\n        low = mid + 1\nprint(f\"Position: {index + 1}\")",
+    "operation": "array = [2, 4, 6, 8, 10, 12, 14]\ntarget = 10   # not in the input: type it yourself\nindex, low, high = -1, 0, len(array) - 1\nwhile low <= high:\n    mid = (low + high) // 2\n    if array[mid] == target:\n        index = mid\n        break\n    elif target < array[mid]:\n        high = mid - 1\n    else:\n        low = mid + 1\nprint(f\"Position: {index + 1}\")",
     "expected_output": "Position: 5",
     "difficulty": "medium",
     "required_modules": [
@@ -197,7 +197,7 @@
     "title": "Next-Year Leap Checker",
     "description": "Given a year, check the NEXT year (year + 1). It is a leap year if divisible by 4, except century years (divisible by 100), which must also be divisible by 400. Show the answer as \"Next year: Leap Year\" or \"Next year: Common Year\".",
     "input": 1999,
-    "operation": "year = year + 1\nleap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)\nanswer = \"Leap Year\" if leap else \"Common Year\"\nprint(f\"Next year: {answer}\")",
+    "operation": "year = 1999\nyear = year + 1\nleap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)\nanswer = \"Leap Year\" if leap else \"Common Year\"\nprint(f\"Next year: {answer}\")",
     "expected_output": "Next year: Leap Year",
     "difficulty": "medium",
     "required_modules": [
@@ -236,7 +236,7 @@
       11,
       90
     ],
-    "operation": "valid = [m for m in marks if 10 <= m <= 100]\nswapped = True\nwhile swapped:\n    swapped = False\n    for i in range(len(valid) - 1):\n        if valid[i] > valid[i + 1]:\n            valid[i], valid[i + 1] = valid[i + 1], valid[i]\n            swapped = True\nprint(f\"Sorted marks: {valid}\")",
+    "operation": "marks = [64, 150, 25, 12, 5, 22, 11, 90]\nvalid = [m for m in marks if 10 <= m <= 100]\nswapped = True\nwhile swapped:\n    swapped = False\n    for i in range(len(valid) - 1):\n        if valid[i] > valid[i + 1]:\n            valid[i], valid[i + 1] = valid[i + 1], valid[i]\n            swapped = True\nprint(f\"Sorted marks: {valid}\")",
     "expected_output": "Sorted marks: [11, 12, 22, 25, 64, 90]",
     "difficulty": "medium",
     "required_modules": [
@@ -269,7 +269,7 @@
       "Transport": 3000,
       "Entertainment": 3000
     },
-    "operation": "amounts[\"Savings\"] = 6000\ntotal = sum(amounts.values())\npercent = {k: round(v / total * 100, 2) for k, v in amounts.items()}\npie_chart(percent, title=\"Monthly Budget Pie Chart\")",
+    "operation": "INPUT\n  Expenses by category: Rent, Food, Transport, Entertainment\n\nPROCESS\n  1. Add a 5th category: Savings = 6000\n  2. Total = sum of all 5 amounts\n  3. Percent of each category = amount / total x 100\n\nOUTPUT\n  Pie chart titled \"Monthly Budget Pie Chart\"\n  Result: Category: percent | Category: percent | ...",
     "expected_output": "Rent: 40% | Food: 20% | Transport: 10% | Entertainment: 10% | Savings: 20%",
     "image": "/assets/hard_expense_pie.png",
     "difficulty": "hard",
@@ -318,7 +318,7 @@
         260
       ]
     },
-    "operation": "target = 200\ndays = [\"Mon\", \"Tue\", \"Wed\", \"Thu\", \"Fri\", \"Sat\", \"Sun\"]\nstatus = [\"Above Target\" if s >= target else \"Below Target\" for s in sales]\nbar_chart(days, sales, status, title=\"Weekly Sales Bar Chart\", y_label=\"Sales ($)\")",
+    "operation": "INPUT\n  Daily sales for 7 days (Mon-Sun)\n\nPROCESS\n  1. Set the target = 200\n  2. For each day: sales >= target -> \"Above Target\", else \"Below Target\"\n\nOUTPUT\n  Bar chart titled \"Weekly Sales Bar Chart\", Y label \"Sales ($)\"\n  (green = Above Target, red = Below Target)\n  Result: Day: status | Day: status | ...",
     "expected_output": "Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target | Sat: Below Target | Sun: Above Target",
     "image": "/assets/hard_sales_bar.png",
     "difficulty": "hard",

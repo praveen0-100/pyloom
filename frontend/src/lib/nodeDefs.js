@@ -9,6 +9,7 @@ export const NODE_FIELDS = {
   Subtract: [OPERAND_FIELD],
   Multiply: [OPERAND_FIELD],
   Divide: [OPERAND_FIELD],
+  Modulus: [OPERAND_FIELD],
   Replace: [
     { key: "find", kind: "text", placeholder: "Find e.g. a", raw: true },
     { key: "replace_with", kind: "text", placeholder: "Replace with e.g. - (empty = delete)", raw: true, keepEmpty: true }
@@ -72,7 +73,7 @@ const CATEGORY = {
   Sum: ["cat-math", "∑"], Length: ["cat-math", "LN"], Average: ["cat-math", "AVG"],
   Min: ["cat-math", "MIN"], Max: ["cat-math", "MAX"], Add: ["cat-math", "+"],
   Subtract: ["cat-math", "-"], Multiply: ["cat-math", "×"], Divide: ["cat-math", "÷"],
-  Round: ["cat-math", "RD"], Reverse: ["cat-string", "RV"],
+  Modulus: ["cat-math", "mod"], Round: ["cat-math", "RD"], Reverse: ["cat-string", "RV"],
   Compare: ["cat-logic", "?"], IfElse: ["cat-logic", "IF"], Lookup: ["cat-logic", "LK"],
   Hemisphere: ["cat-logic", "HM"],
   Uppercase: ["cat-string", "AA"], Lowercase: ["cat-string", "aa"], Replace: ["cat-string", "RP"],
@@ -93,31 +94,52 @@ export function getModuleCategory(type) {
 }
 
 const DESC = {
-  Input: "Provides raw dataset input", List: "Converts input to Python list",
-  Output: "Receives & formats final result", Sum: "Calculates sum of list elements",
-  Length: "Calculates total count / length", Average: "Calculates arithmetic mean",
-  Divide: "Divides numerator by denominator", Subtract: "Subtracts operand or 2nd input",
-  Multiply: "Multiplies by operand or 2nd input", Round: "Rounds a number to N decimals",
-  Get: "Reads key(s) from a dictionary", SetValue: "Adds a key and value you type to the data", Reverse: "Reverses text",
-  Compare: "Returns True/False for a comparison", IfElse: "Picks a value from a condition",
-  Lookup: "Finds landmark country & coordinates", Hemisphere: "Classifies hemisphere from coordinates",
-  Uppercase: "Converts string to uppercase", Replace: "Replaces search string matches",
-  Filter: "Filters list items within range", Pattern: "Generates N-level triangle pattern",
-  LineChart: "Renders Matplotlib line chart",
-  Square: "Multiplies a number by itself", Convert: "Fahrenheit → Celsius: (F-32) × 5 / 9",
-  Midpoint: "Picks the middle index of the search range",
-  BinaryCompare: "Middle = target? Else keep the left or right half",
-  RepeatSearch: "Repeats Midpoint + Compare, returns the index",
-  Div4Check: "Is the year divisible by 4?",
-  CenturyRule: "Century years must also be divisible by 400",
-  CompareSwap: "One pass: swap neighbours if left > right",
-  PassRepeat: "Repeats passes until nothing is left to swap",
-  TotalSum: "Adds up all the category amounts",
-  Percentage: "Each amount ÷ total × 100",
-  TargetCompare: "Marks each day Above / Below the target",
-  GradeClassifier: "Score → grade: A ≥90, B 75-89, C 50-74, F <50",
-  CountGrades: "Counts the students in each grade",
-  PieChart: "Draws a pie chart", BarChart: "Draws a green / red bar chart"
+  Input: "Starts the flow with the question data you type in",
+  Output: "Shows the final result; type a format like Total: {value}",
+  List: "Turns the input into a Python list",
+  Get: "Picks one value out of a dictionary by its key",
+  SetValue: "Adds a new key and value you type into the data",
+  Sum: "Adds all the numbers in a list into one total",
+  Length: "Counts how many items are in a list",
+  Average: "Finds the mean of a list of numbers",
+  Min: "Finds the smallest number in a list",
+  Max: "Finds the largest number in a list",
+  Add: "Adds the number you type (or a second input) to the value",
+  Subtract: "Subtracts the number you type (or a second input) from the value",
+  Multiply: "Multiplies the value by the number you type (or a second input)",
+  Divide: "Divides the first input by the second input",
+  Modulus: "Gives the remainder after dividing (7 % 3 = 1)",
+  Square: "Multiplies a number by itself (x × x)",
+  Round: "Rounds a number to the decimals you type",
+  Convert: "Turns °F into °C: (F − 32) × 5 ÷ 9",
+  Compare: "Checks two values (==, >=, <, ...) and gives True or False",
+  IfElse: "Checks a condition and gives back one of two answers you type",
+  Filter: "Drops every number outside your Min to Max range",
+  Sort: "Puts a list in ascending order",
+  Reverse: "Flips text backwards (abc → cba)",
+  Uppercase: "Changes every letter to a capital",
+  Lowercase: "Changes every letter to small letters",
+  Replace: "Swaps a piece of text for another piece",
+  Split: "Cuts text into a list at a separator",
+  Join: "Glues a list into one text with a separator",
+  Pattern: "Generates an N-level star pattern",
+  Lookup: "Finds a landmark's country and coordinates",
+  Hemisphere: "Tells which hemisphere a coordinate is in",
+  LineChart: "Draws a line chart; type the title and axis labels",
+  Midpoint: "Finds the middle index of the current search range",
+  BinaryCompare: "Checks the middle value against the target, then keeps the left or right half",
+  RepeatSearch: "Repeats middle-and-compare until the target's index is found (-1 if missing)",
+  Div4Check: "Checks whether a year is divisible by 4",
+  CenturyRule: "A year divisible by 100 is a leap year only if it is also divisible by 400",
+  CompareSwap: "Does ONE pass: swaps neighbours when the left one is bigger",
+  PassRepeat: "Repeats swap passes until nothing is left to swap (sorted)",
+  TotalSum: "Adds all the category amounts into one total",
+  Percentage: "Turns each amount into its share: amount ÷ total × 100",
+  TargetCompare: "Labels each value Above Target or Below Target",
+  GradeClassifier: "Turns each score into a grade: A ≥90, B 75-89, C 50-74, F <50",
+  CountGrades: "Counts how many students got each grade",
+  PieChart: "Draws a pie chart of the shares; type the title",
+  BarChart: "Draws a bar chart (green above / red below); type the title and Y label"
 };
 // Simple names shown to players; the engine keeps using the internal type names.
 const LABELS = {
@@ -131,29 +153,26 @@ const LABELS = {
 export const getModuleLabel = (type) => LABELS[type] || type;
 export const getModuleDesc = (type) => DESC[type] || "Processes flow data";
 
-// Sidebar module library: the blocks the PYLOOM question set uses, grouped by what they do.
+// Sidebar module library: grouped by what the blocks do. Descriptions come from DESC so the sidebar and
+// the canvas always say the same thing. A few blocks are not needed by every question (Min, Max, Modulus,
+// Subtract, Multiply, Uppercase, Lowercase, Replace): choose the ones the Operation really calls for.
 // [type, icon, description, optional icon class override]
+const m = (type, icon, cls) => [type, icon, getModuleDesc(type), cls];
 export const MODULE_LIBRARY = [
   { id: "io", title: "Input / Output", cls: "cat-data", modules: [
-    ["Input", "IN", "Start here: type the question data"], ["Output", "OUT", "End here: the final result"],
-    ["Get", "GT", "Read a key from a dictionary"], ["SetValue", "SET", "Type a key and value to add to the data"] ] },
+    m("Input", "IN"), m("Output", "OUT"), m("Get", "GT"), m("SetValue", "SET") ] },
   { id: "math", title: "Math", cls: "cat-math", modules: [
-    ["Sum", "∑", "Add up the list"], ["Length", "LN", "Count the items"],
-    ["Add", "+", "Add two values"], ["Subtract", "-", "Subtract two values"],
-    ["Multiply", "×", "Multiply values"], ["Divide", "÷", "First input ÷ second input"],
-    ["Square", "x²", "Multiply a number by itself"], ["Round", "RD", "Round to decimals"],
-    ["Convert", "°", "Fahrenheit → Celsius"] ] },
+    m("Sum", "∑"), m("Length", "LN"), m("Min", "MIN"), m("Max", "MAX"),
+    m("Add", "+"), m("Subtract", "-"), m("Multiply", "×"), m("Divide", "÷"),
+    m("Modulus", "mod"), m("Square", "x²"), m("Round", "RD"), m("Convert", "°") ] },
   { id: "logic", title: "Logic & Text", cls: "cat-logic", modules: [
-    ["Compare", "?", "Returns True / False"], ["IfElse", "IF", "Pick one of two answers you type"],
-    ["Filter", "FL", "Keep numbers between Min and Max"], ["Reverse", "RV", "Reverse text", "cat-string"] ] },
+    m("Compare", "?"), m("IfElse", "IF"), m("Filter", "FL"),
+    m("Reverse", "RV", "cat-string"), m("Uppercase", "AA", "cat-string"),
+    m("Lowercase", "aa", "cat-string"), m("Replace", "RP", "cat-string") ] },
   { id: "algo", title: "Search & Sort", cls: "cat-algo", modules: [
-    ["Midpoint", "MID", "Middle index of the range"], ["BinaryCompare", "<=>", "Middle vs target"],
-    ["RepeatSearch", "↻", "Repeat until found"], ["Div4Check", "÷4", "Divisible by 4?"],
-    ["CenturyRule", "100", "÷100 needs ÷400"], ["CompareSwap", "⇄", "One bubble-sort pass"],
-    ["PassRepeat", "↻", "Repeat passes until sorted"] ] },
+    m("Midpoint", "MID"), m("BinaryCompare", "<=>"), m("RepeatSearch", "↻"),
+    m("Div4Check", "÷4"), m("CenturyRule", "100"), m("CompareSwap", "⇄"), m("PassRepeat", "↻") ] },
   { id: "chart", title: "Charts & Grades", cls: "cat-chart", modules: [
-    ["TotalSum", "Σ", "Total of all categories"], ["Percentage", "%", "Share of the total"],
-    ["TargetCompare", "≥T", "Above / Below target"], ["GradeClassifier", "A-F", "Score → grade"],
-    ["CountGrades", "#", "Students per grade"], ["PieChart", "◔", "Pie chart render"],
-    ["BarChart", "▮▮", "Bar chart render"] ] }
+    m("TotalSum", "Σ"), m("Percentage", "%"), m("TargetCompare", "≥T"),
+    m("GradeClassifier", "A-F"), m("CountGrades", "#"), m("PieChart", "◔"), m("BarChart", "▮▮") ] }
 ];
