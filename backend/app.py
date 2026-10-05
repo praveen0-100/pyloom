@@ -675,27 +675,31 @@ def report_participant_lock_violation():
 
 ADMIN_LOCK_KEY = "admin_lock"
 ADMIN_LOCK_TTL_SECONDS = 10
+MAX_ADMINS = 3
 
 
-def _admin_lock_active(lock):
-    return bool(lock) and time.time() - lock.get("last_seen", 0) < ADMIN_LOCK_TTL_SECONDS
+def _active_admin_seats(lock):
+    """The admin seats still alive: {session id: last_seen} for dashboards seen within the TTL."""
+    seats = (lock or {}).get("seats") or {}
+    now = time.time()
+    return {sid: seen for sid, seen in seats.items() if now - seen < ADMIN_LOCK_TTL_SECONDS}
 
 
 def _claim_admin(refresh_only=False):
-    """Only one admin may be signed in at a time (participants are unlimited).
+    """At most MAX_ADMINS admins may be signed in at a time (participants are unlimited).
 
-    The active admin holds a lock that their dashboard keeps alive by polling; it
+    Every signed-in admin holds a seat that their dashboard keeps alive by polling; it
     expires a few seconds after they close the tab, freeing the seat. Returns True
-    if this browser session holds (or just took) the admin seat.
+    if this browser session holds (or just took) a seat.
     """
     sid = session.get("admin_id")
-    lock = kv_get(ADMIN_LOCK_KEY, None)
-    if _admin_lock_active(lock) and lock.get("id") != sid:
-        return False
-    if refresh_only and not sid:
-        return False
-    if not lock or lock.get("id") != sid or time.time() - lock.get("last_seen", 0) > 3:
-        kv_set(ADMIN_LOCK_KEY, {"id": sid, "last_seen": time.time()})
+    seats = _active_admin_seats(kv_get(ADMIN_LOCK_KEY, None))
+    if sid not in seats:
+        if refresh_only or not sid or len(seats) >= MAX_ADMINS:
+            return False
+    if time.time() - seats.get(sid, 0) > 3:
+        seats[sid] = time.time()
+        kv_set(ADMIN_LOCK_KEY, {"seats": seats})
     return True
 
 
@@ -838,7 +842,7 @@ def admin_login():
     session["admin_id"] = session.get("admin_id") or uuid.uuid4().hex
     if not _claim_admin():
         session.pop("admin_id", None)
-        return jsonify({"success": False, "error": "Another admin is already signed in. Only one admin is allowed at a time."}), 409
+        return jsonify({"success": False, "error": f"{MAX_ADMINS} admins are already signed in. At most {MAX_ADMINS} admins are allowed at a time."}), 409
     session["admin_authenticated"] = True
     return jsonify({"success": True})
 
@@ -851,9 +855,9 @@ def admin_session():
 
 @app.route("/api/admin/logout", methods=["POST"])
 def admin_logout():
-    lock = kv_get(ADMIN_LOCK_KEY, None)
-    if lock and lock.get("id") == session.get("admin_id"):
-        kv_set(ADMIN_LOCK_KEY, {})
+    seats = _active_admin_seats(kv_get(ADMIN_LOCK_KEY, None))
+    if seats.pop(session.get("admin_id"), None) is not None:
+        kv_set(ADMIN_LOCK_KEY, {"seats": seats})
     session.pop("admin_authenticated", None)
     session.pop("admin_id", None)
     return jsonify({"success": True})
