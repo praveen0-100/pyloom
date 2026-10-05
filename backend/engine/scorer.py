@@ -118,7 +118,11 @@ def score_flow(flow_json, mission, test_results, graph_valid, base_output=None, 
     checks = {
         "mapping_flow": bool(graph_valid),
         "logic_building": bool(
-            (all(module in node_types for module in required_modules) if required_modules else len(nodes) >= 2)
+            # Any combination of the existing blocks is accepted (multiple solutions): the mapping only
+            # needs a processing block when the reference solution uses one; the output check decides
+            # whether the logic is right.
+            (any(t not in ("Input", "Output") for t in node_types)
+             if any(m not in ("Input", "Output") for m in required_modules) else len(nodes) >= 2)
             and edges
             and _configs_ok(nodes, mission)
             and _input_entered(nodes, mission)

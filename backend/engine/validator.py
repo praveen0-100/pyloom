@@ -45,14 +45,9 @@ def validate_flow(flow_json, required_modules=None):
                 "message": f"Module '{m_type}' is not registered in the system."
             }
 
-    # Check required modules if specified by mission
-    if required_modules:
-        for req in required_modules:
-            if req not in node_types:
-                return False, {
-                    "type": "MISSING_REQUIRED_MODULE",
-                    "message": f"Mission requires node type '{req}' in your flow."
-                }
+    # `required_modules` is only the reference solution's blocks: any other combination of the
+    # existing blocks is a valid solution, so it is not enforced here. Whether the mapping is
+    # right is decided by the flow's output (see scorer.score_flow).
 
     # Validate edges / connections
     in_degree = defaultdict(int)

@@ -230,15 +230,64 @@ export default function ParticipantConsole({ onRevoked }) {
   const onDeleteEdge = useCallback((index) => setEdges((list) => list.filter((_, i) => i !== index)), []);
   const onSelect = useCallback((id) => setSelectedNode(id), []);
   const onDropType = (type, x, y) => createNode(type, x, y);
+  // Align the mapping: blocks go in columns by their depth in the flow (inputs first, outputs
+  // last), flowing top to bottom, with each column's rows centred under the widest one so the
+  // connection lines stay short and never cross a block.
   const onAutoLayout = () => {
+    const NODE_W = 200, GAP_X = 50, GAP_Y = 70, TOP = 40, LEFT = 40;
+    const edgeList = live.current.edges;
     setNodes((list) => {
-      let y = 60;
-      return list.map((n, i) => {
-        const placed = { ...n, x: 120 + (i % 2 === 0 ? 0 : 40), y };
-        y += 120;
-        return placed;
+      if (!list.length) return list;
+      const ids = new Set(list.map((n) => n.id));
+      const links = edgeList.filter((e) => ids.has(e.from) && ids.has(e.to));
+      const level = new Map(list.map((n) => [n.id, 0]));
+      // Longest-path depth (relax at most n times, so a stray loop cannot hang the layout).
+      for (let pass = 0; pass < list.length; pass++) {
+        let changed = false;
+        links.forEach((e) => {
+          if (level.get(e.to) < level.get(e.from) + 1) { level.set(e.to, level.get(e.from) + 1); changed = true; }
+        });
+        if (!changed) break;
+      }
+      const rows = new Map();
+      list.forEach((n) => {
+        const l = level.get(n.id);
+        if (!rows.has(l)) rows.set(l, []);
+        rows.get(l).push(n);
       });
+      // Order each row by the average position of its parents to reduce crossings.
+      const order = new Map();
+      [...rows.keys()].sort((a, b) => a - b).forEach((l) => {
+        const row = rows.get(l);
+        const score = (n) => {
+          const parents = links.filter((e) => e.to === n.id).map((e) => order.get(e.from)).filter((v) => v !== undefined);
+          return parents.length ? parents.reduce((a, b) => a + b, 0) / parents.length : list.indexOf(n);
+        };
+        row.sort((a, b) => score(a) - score(b));
+        row.forEach((n, i) => order.set(n.id, i));
+      });
+      const widest = Math.max(...[...rows.values()].map((r) => r.length));
+      const fullW = widest * NODE_W + (widest - 1) * GAP_X;
+      const pos = new Map();
+      let y = TOP;
+      [...rows.keys()].sort((a, b) => a - b).forEach((l) => {
+        const row = rows.get(l);
+        const rowW = row.length * NODE_W + (row.length - 1) * GAP_X;
+        const x0 = LEFT + (fullW - rowW) / 2;
+        let rowH = 0;
+        row.forEach((n, i) => {
+          pos.set(n.id, { x: x0 + i * (NODE_W + GAP_X), y });
+          rowH = Math.max(rowH, document.getElementById(n.id)?.offsetHeight || 90);
+        });
+        y += rowH + GAP_Y;
+      });
+      const next = list.map((n) => ({ ...n, ...pos.get(n.id) }));
+      live.current.nodes = next;
+      return next;
     });
+    const nextView = { zoom: 1, panX: 0, panY: 0 };
+    viewRef.current = nextView;
+    setView(nextView);
   };
 
   const resetCanvasState = () => {
