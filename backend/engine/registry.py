@@ -3,7 +3,7 @@ PYLOOM Module Registry
 Maps visual module type names to safe python functions.
 """
 from backend.modules.data_modules import (
-    execute_input, execute_list, execute_dictionary, execute_output, execute_get
+    execute_input, execute_list, execute_dictionary, execute_output, execute_get, execute_set_value
 )
 from backend.modules.math_modules import (
     execute_sum, execute_length, execute_average, execute_min, execute_max,
@@ -54,6 +54,7 @@ MODULE_REGISTRY = {
     "Sort": execute_sort,
     "LineChart": execute_line_chart,
     "Get": execute_get,
+    "SetValue": execute_set_value,
     "Reverse": execute_reverse,
     "Compare": execute_compare,
     "IfElse": execute_ifelse,

@@ -148,33 +148,28 @@
           10,
           12,
           14
-        ],
-        "target": 10
+        ]
       },
-      "expected": "4",
+      "expected": "Position: 5",
       "hidden": false
     },
     {
       "test_id": "T02",
-      "name": "First item",
+      "name": "10 is first",
       "input": {
         "array": [
-          2,
-          4,
-          6,
-          8,
           10,
-          12,
-          14
-        ],
-        "target": 2
+          20,
+          30,
+          40
+        ]
       },
-      "expected": "0",
+      "expected": "Position: 1",
       "hidden": true
     },
     {
       "test_id": "T03",
-      "name": "Last item",
+      "name": "10 is last",
       "input": {
         "array": [
           1,
@@ -182,110 +177,110 @@
           5,
           7,
           9,
-          11
-        ],
-        "target": 11
+          10
+        ]
       },
-      "expected": "5",
+      "expected": "Position: 6",
       "hidden": true
     },
     {
       "test_id": "T04",
-      "name": "Target missing",
+      "name": "10 is missing",
       "input": {
         "array": [
           2,
           4,
           6,
           8
-        ],
-        "target": 5
+        ]
       },
-      "expected": "-1",
+      "expected": "Position: 0",
       "hidden": true
     }
   ],
   "medium_2": [
     {
       "test_id": "T01",
-      "name": "2000",
-      "input": 2000,
-      "expected": "True",
+      "name": "1999 → 2000",
+      "input": 1999,
+      "expected": "Next year: Leap Year",
       "hidden": false
     },
     {
       "test_id": "T02",
-      "name": "1900 (century, not ÷400)",
-      "input": 1900,
-      "expected": "False",
+      "name": "1899 → 1900 (century, not ÷400)",
+      "input": 1899,
+      "expected": "Next year: Common Year",
       "hidden": true
     },
     {
       "test_id": "T03",
-      "name": "2024",
-      "input": 2024,
-      "expected": "True",
+      "name": "2023 → 2024",
+      "input": 2023,
+      "expected": "Next year: Leap Year",
       "hidden": true
     },
     {
       "test_id": "T04",
-      "name": "2023",
-      "input": 2023,
-      "expected": "False",
+      "name": "2022 → 2023",
+      "input": 2022,
+      "expected": "Next year: Common Year",
       "hidden": true
     }
   ],
   "medium_3": [
     {
       "test_id": "T01",
-      "name": "64, 25, 12, 22, 11",
+      "name": "Marks with 150 and 5",
       "input": [
         64,
+        150,
         25,
         12,
-        22,
-        11
-      ],
-      "expected": "[11, 12, 22, 25, 64]",
-      "hidden": false
-    },
-    {
-      "test_id": "T02",
-      "name": "Seven numbers",
-      "input": [
-        64,
-        34,
-        25,
-        12,
+        5,
         22,
         11,
         90
       ],
-      "expected": "[11, 12, 22, 25, 34, 64, 90]",
+      "expected": "Sorted marks: [11, 12, 22, 25, 64, 90]",
+      "hidden": false
+    },
+    {
+      "test_id": "T02",
+      "name": "Edges 10 and 100 are valid",
+      "input": [
+        95,
+        101,
+        40,
+        9,
+        10,
+        100
+      ],
+      "expected": "Sorted marks: [10, 40, 95, 100]",
       "hidden": true
     },
     {
       "test_id": "T03",
-      "name": "Reverse order",
+      "name": "Descending",
       "input": [
-        5,
-        4,
-        3,
-        2,
-        1
+        100,
+        99,
+        98,
+        0,
+        -5
       ],
-      "expected": "[1, 2, 3, 4, 5]",
+      "expected": "Sorted marks: [98, 99, 100]",
       "hidden": true
     },
     {
       "test_id": "T04",
-      "name": "Already sorted",
+      "name": "Nothing valid",
       "input": [
-        1,
+        3,
         2,
-        3
+        1
       ],
-      "expected": "[1, 2, 3]",
+      "expected": "Sorted marks: []",
       "hidden": true
     }
   ],
@@ -299,31 +294,31 @@
         "Transport": 3000,
         "Entertainment": 3000
       },
-      "expected": "Rent: 50% | Food: 25% | Transport: 12.5% | Entertainment: 12.5%",
+      "expected": "Rent: 40% | Food: 20% | Transport: 10% | Entertainment: 10% | Savings: 20%",
       "hidden": false
     },
     {
       "test_id": "T02",
-      "name": "Total 20000",
+      "name": "Total 20000 + savings",
       "input": {
         "Rent": 10000,
         "Food": 5000,
         "Transport": 3000,
         "Entertainment": 2000
       },
-      "expected": "Rent: 50% | Food: 25% | Transport: 15% | Entertainment: 10%",
+      "expected": "Rent: 38.46% | Food: 19.23% | Transport: 11.54% | Entertainment: 7.69% | Savings: 23.08%",
       "hidden": true
     },
     {
       "test_id": "T03",
-      "name": "Total 40000",
+      "name": "Total 40000 + savings",
       "input": {
         "Rent": 15000,
         "Food": 10000,
         "Transport": 5000,
         "Entertainment": 10000
       },
-      "expected": "Rent: 37.5% | Food: 25% | Transport: 12.5% | Entertainment: 25%",
+      "expected": "Rent: 32.61% | Food: 21.74% | Transport: 10.87% | Entertainment: 21.74% | Savings: 13.04%",
       "hidden": true
     }
   ],
@@ -337,11 +332,12 @@
           220,
           250,
           150,
-          300
-        ],
-        "target": 200
+          300,
+          170,
+          260
+        ]
       },
-      "expected": "Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target",
+      "expected": "Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target | Sat: Below Target | Sun: Above Target",
       "hidden": false
     },
     {
@@ -353,11 +349,12 @@
           150,
           250,
           100,
-          220
-        ],
-        "target": 200
+          220,
+          199,
+          201
+        ]
       },
-      "expected": "Mon: Above Target | Tue: Below Target | Wed: Above Target | Thu: Below Target | Fri: Above Target",
+      "expected": "Mon: Above Target | Tue: Below Target | Wed: Above Target | Thu: Below Target | Fri: Above Target | Sat: Below Target | Sun: Above Target",
       "hidden": true
     },
     {
@@ -369,11 +366,12 @@
           60,
           70,
           80,
-          90
-        ],
-        "target": 100
+          90,
+          100,
+          110
+        ]
       },
-      "expected": "Mon: Below Target | Tue: Below Target | Wed: Below Target | Thu: Below Target | Fri: Below Target",
+      "expected": "Mon: Below Target | Tue: Below Target | Wed: Below Target | Thu: Below Target | Fri: Below Target | Sat: Below Target | Sun: Below Target",
       "hidden": true
     }
   ]

@@ -75,7 +75,7 @@ def _configs_ok(nodes, mission):
     """Optional per-mission node settings, e.g. the LineChart title."""
     for rule in mission.get("config_checks", []):
         matching = [n for n in nodes if n.get("type") == rule.get("type")]
-        if not any(str((n.get("config") or {}).get(rule["key"], "")).strip() == str(rule["equals"]) for n in matching):
+        if not any(str((n.get("config") or {}).get(rule["key"], "")).strip().lower() == str(rule["equals"]).strip().lower() for n in matching):
             return False
     return True
 

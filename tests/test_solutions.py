@@ -23,6 +23,10 @@ def chain(*blocks):
         nodes[f"b{i}"] = block
         edges.append((previous, f"b{i}"))
         previous = f"b{i}"
+    if blocks and blocks[-1][0] == "Output":  # the last block is already the (formatted) Output
+        nodes["out"] = nodes.pop(previous)
+        edges[-1] = (edges[-1][0], "out")
+        return flow(nodes, edges)
     nodes["out"] = ("Output", {})
     edges.append((previous, "out"))
     return flow(nodes, edges)
@@ -41,11 +45,17 @@ SOLUTIONS = {
     "easy_5": flow(
         {"i": ("Input", {}), "s": ("Sum", {}), "l": ("Length", {}), "d": ("Divide", {}), "o": ("Output", {})},
         [("i", "s"), ("i", "l"), ("s", "d"), ("l", "d"), ("d", "o")]),
-    "medium_1": chain(("Midpoint", {}), ("BinaryCompare", {}), ("RepeatSearch", {})),
-    "medium_2": chain(("Div4Check", {}), ("CenturyRule", {})),
-    "medium_3": chain(("CompareSwap", {}), ("PassRepeat", {})),
-    "hard_1": chain(("TotalSum", {}), ("Percentage", {}), ("PieChart", {"title": "Monthly Expense Pie Chart"})),
-    "hard_2": chain(("TargetCompare", {}), ("BarChart", {"title": "Weekly Sales Bar Chart"})),
+    "medium_1": chain(("SetValue", {"key": "target", "value": "10"}), ("Midpoint", {}), ("BinaryCompare", {}),
+                      ("RepeatSearch", {}), ("Add", {"operand": 1}), ("Output", {"format": "Position: {value}"})),
+    "medium_2": chain(("Add", {"operand": 1}), ("Div4Check", {}), ("CenturyRule", {}),
+                      ("IfElse", {"op": "==", "value": "True", "then": "Leap Year", "otherwise": "Common Year"}),
+                      ("Output", {"format": "Next year: {value}"})),
+    "medium_3": chain(("Filter", {"min": 10, "max": 100}), ("CompareSwap", {}), ("PassRepeat", {}),
+                      ("Output", {"format": "Sorted marks: {value}"})),
+    "hard_1": chain(("SetValue", {"key": "Savings", "value": "6000"}), ("TotalSum", {}), ("Percentage", {}),
+                    ("PieChart", {"title": "Monthly Budget Pie Chart"})),
+    "hard_2": chain(("SetValue", {"key": "target", "value": "200"}), ("TargetCompare", {}),
+                    ("BarChart", {"title": "Weekly Sales Bar Chart", "y_label": "Sales ($)"})),
 }
 
 
@@ -100,7 +110,7 @@ class TestReferenceSolutions(unittest.TestCase):
     def test_expected_outputs_shown_to_participants(self):
         expected = {
             "easy_1": "True", "easy_2": "22.9", "easy_3": "True", "easy_4": "37.0", "easy_5": "25.0",
-            "medium_1": "4", "medium_2": "True", "medium_3": "[11, 12, 22, 25, 64]",
+            "medium_1": "Position: 5", "medium_2": "Next year: Leap Year", "medium_3": "Sorted marks: [11, 12, 22, 25, 64, 90]",
         }
         for mission_id, text in expected.items():
             with self.subTest(mission=mission_id):
@@ -119,6 +129,17 @@ class TestReferenceSolutions(unittest.TestCase):
         wrong = copy.deepcopy(with_input("easy_5", SOLUTIONS["easy_5"]))
         wrong["edges"][2], wrong["edges"][3] = wrong["edges"][3], wrong["edges"][2]  # Length -> Divide first
         self.assertFalse(self.run_flow("easy_5", wrong)["all_passed"])
+
+    def test_typed_values_are_required(self):
+        # Medium/hard questions need values the participant types into the blocks.
+        for mission_id, block_type, key in (("hard_1", "SetValue", "value"), ("hard_2", "BarChart", "title"),
+                                            ("medium_1", "SetValue", "value"), ("medium_3", "Filter", "max")):
+            with self.subTest(mission=mission_id):
+                wrong = copy.deepcopy(with_input(mission_id, SOLUTIONS[mission_id]))
+                for node in wrong["nodes"]:
+                    if node["type"] == block_type:
+                        node["config"][key] = "1" if key != "title" else "Some other title"
+                self.assertFalse(self.run_flow(mission_id, wrong)["all_passed"])
 
     def test_wrong_mapping_still_earns_partial_credits(self):
         wrong = flow({"i": ("Input", {}), "o": ("Output", {})}, [("i", "o")])

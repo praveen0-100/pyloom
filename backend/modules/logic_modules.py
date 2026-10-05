@@ -45,6 +45,8 @@ _OPS = {
 
 
 def _compare(a, op, b):
+    if isinstance(a, bool) and isinstance(b, str) and b.strip().lower() in ("true", "false"):
+        b = b.strip().lower() == "true"  # "True" typed into a block
     if op not in _OPS:
         raise ValueError(f"Unsupported comparison operator '{op}'.")
     return bool(_OPS[op](a, b))

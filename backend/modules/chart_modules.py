@@ -130,7 +130,7 @@ def execute_bar_chart(val, config=None):
         ax.axhline(val["target"], color="#475569", linestyle="--", linewidth=1.5)
         ax.text(-0.45, val["target"], f"Target {_fmt(val['target'])}", va="bottom", ha="left", fontsize=9, color="#475569")
     ax.set_title((config or {}).get("title") or "PYLOOM Bar Chart", fontsize=12, fontweight="bold", color="#1e293b")
-    ax.set_ylabel("Sales", fontsize=10, color="#64748b")
+    ax.set_ylabel((config or {}).get("y_label") or "Sales", fontsize=10, color="#64748b")
     ax.legend(handles=[plt.Rectangle((0, 0), 1, 1, color="#16a34a"), plt.Rectangle((0, 0), 1, 1, color="#dc2626")],
               labels=["Above Target", "Below Target"], fontsize=8, loc="upper left")
     ax.grid(True, axis="y", linestyle="--", alpha=0.4)

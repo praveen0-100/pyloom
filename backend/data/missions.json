@@ -152,8 +152,8 @@
   },
   {
     "id": "medium_1",
-    "title": "Binary Search Locator",
-    "description": "Given a sorted array and a target value, find the index of the target using Binary Search: look at the middle value and keep halving the search range.",
+    "title": "Binary Search Position Finder",
+    "description": "Given a sorted array, find where the value 10 sits using Binary Search (look at the middle value and keep halving the range). The target is NOT in the input: you must enter it yourself. Report the position counting from 1, written as \"Position: <number>\" (0 when the value is missing).",
     "input": {
       "array": [
         2,
@@ -163,74 +163,85 @@
         10,
         12,
         14
-      ],
-      "target": 10
+      ]
     },
-    "operation": "Binary search: Midpoint → Compare → Repeat on the half that can still contain the target",
-    "expected_output": "4",
+    "operation": "Set target = 10 → Midpoint → Compare → Repeat → add 1 (index → position) → format the answer as Position: <number>",
+    "expected_output": "Position: 5",
     "difficulty": "medium",
     "required_modules": [
       "Input",
+      "SetValue",
       "Midpoint",
       "BinaryCompare",
       "RepeatSearch",
+      "Add",
       "Output"
     ],
     "round": 2,
     "time_limit_minutes": 15,
     "guide": {
-      "input": "Drag an Input node and set Input Data to {\"array\": [2, 4, 6, 8, 10, 12, 14], \"target\": 10}.",
+      "input": "Drag an Input node and set Input Data to {\"array\": [2, 4, 6, 8, 10, 12, 14]}. There is no target in it yet.",
       "mapping": [
-        "Input → Midpoint. Midpoint picks the middle index of the search range (here index 3, the value 8).",
-        "Midpoint → BinaryCompare. It compares the middle value with the target: equal = found; target smaller = search the left half; target larger = search the right half. (8 < 10, so the right half is next.)",
-        "BinaryCompare → RepeatSearch. It repeats Midpoint + Compare on the narrowed range until the target is found, and returns its index (10 is at index 4). It returns -1 when the target is not in the array.",
-        "RepeatSearch → Output."
+        "Input → Set Value. Open ⚙ and type Key = target and Value = 10. This adds the target to the data.",
+        "Set Value → Middle. It picks the middle index of the search range (index 3, the value 8).",
+        "Middle → Compare Middle. Equal = found; target smaller = search the left half; larger = search the right half.",
+        "Compare Middle → Repeat Search. It repeats Middle + Compare until the target is found and returns its INDEX (10 is at index 4; -1 when missing).",
+        "Repeat Search → Add. Type Operand = 1 so the index becomes a position (index 4 → position 5; a missing value gives 0).",
+        "Add → Output. Type the Output format: Position: {value}"
       ],
-      "output": "Leave the Output format empty. Run Flow must show 4 (the index of the value 10)."
+      "output": "Run Flow must show Position: 5."
     }
   },
   {
     "id": "medium_2",
-    "title": "Leap Year Checker",
-    "description": "Given a year, decide whether it is a leap year. A year is a leap year if it is divisible by 4, except century years (divisible by 100), which must also be divisible by 400.",
-    "input": 2000,
-    "operation": "Divisible by 4? Then, if it is a century year, divisible by 400?",
-    "expected_output": "True",
+    "title": "Next-Year Leap Checker",
+    "description": "Given a year, check the NEXT year (year + 1). It is a leap year if divisible by 4, except century years (divisible by 100), which must also be divisible by 400. Show the answer as \"Next year: Leap Year\" or \"Next year: Common Year\".",
+    "input": 1999,
+    "operation": "Year + 1 → divisible by 4? → century rule → if True then \"Leap Year\" else \"Common Year\" → format as Next year: <answer>",
+    "expected_output": "Next year: Leap Year",
     "difficulty": "medium",
     "required_modules": [
       "Input",
+      "Add",
       "Div4Check",
       "CenturyRule",
+      "IfElse",
       "Output"
     ],
     "round": 2,
     "time_limit_minutes": 15,
     "guide": {
-      "input": "Drag an Input node and set Input Data to 2000 (the year).",
+      "input": "Drag an Input node and set Input Data to 1999 (the year).",
       "mapping": [
-        "Input → Div4Check. It checks whether the year is divisible by 4 (2000 ÷ 4 → yes).",
-        "Div4Check → CenturyRule. If the year is a century year (divisible by 100) it must ALSO be divisible by 400 to stay a leap year (2000 ÷ 400 → yes). Years that are not centuries pass automatically.",
-        "CenturyRule → Output."
+        "Input → Add. Type Operand = 1 to move to the next year (1999 → 2000).",
+        "Add → Divisible by 4. It checks whether that year is divisible by 4.",
+        "Divisible by 4 → Century Rule. A century year must ALSO be divisible by 400 (2000 ÷ 400 → yes).",
+        "Century Rule → If / Else. Set Operator == , Compare with True, Then Leap Year, Otherwise Common Year.",
+        "If / Else → Output. Type the Output format: Next year: {value}"
       ],
-      "output": "Leave the Output format empty. Run Flow must show True (2000 is divisible by 4, by 100 and by 400)."
+      "output": "Run Flow must show Next year: Leap Year."
     }
   },
   {
     "id": "medium_3",
-    "title": "Sorting a List of Numbers",
-    "description": "Given an unsorted list of numbers, sort them in ascending order using Bubble Sort: repeatedly compare neighbouring numbers and swap them when the left one is greater than the right one.",
+    "title": "Valid Marks Sorter",
+    "description": "A list of marks contains invalid values. Keep only marks from 10 to 100 (both included), then sort the valid marks in ascending order with Bubble Sort. Show them as \"Sorted marks: [..]\".",
     "input": [
       64,
+      150,
       25,
       12,
+      5,
       22,
-      11
+      11,
+      90
     ],
-    "operation": "Bubble sort: compare & swap neighbours, repeat the pass until no swaps are left",
-    "expected_output": "[11, 12, 22, 25, 64]",
+    "operation": "Keep marks between 10 and 100 → bubble sort (compare & swap, repeat) → format as Sorted marks: <list>",
+    "expected_output": "Sorted marks: [11, 12, 22, 25, 64, 90]",
     "difficulty": "medium",
     "required_modules": [
       "Input",
+      "Filter",
       "CompareSwap",
       "PassRepeat",
       "Output"
@@ -238,95 +249,110 @@
     "round": 2,
     "time_limit_minutes": 15,
     "guide": {
-      "input": "Drag an Input node and set Input Data to [64, 25, 12, 22, 11].",
+      "input": "Drag an Input node and set Input Data to [64, 150, 25, 12, 5, 22, 11, 90].",
       "mapping": [
-        "Input → CompareSwap. It makes ONE pass over the list: each pair of neighbours is compared and swapped if the left number is greater (64 bubbles to the end: [25, 12, 22, 11, 64]).",
-        "CompareSwap → PassRepeat. It keeps repeating the pass until a full pass needs no swaps - then the list is sorted.",
-        "PassRepeat → Output."
+        "Input → Filter. Type Min = 10 and Max = 100. The invalid marks 150 and 5 are removed: [64, 25, 12, 22, 11, 90].",
+        "Filter → Swap Pairs. ONE pass: neighbours are compared and swapped when the left one is greater.",
+        "Swap Pairs → Repeat Passes. It repeats the pass until no swaps are left: the list is sorted.",
+        "Repeat Passes → Output. Type the Output format: Sorted marks: {value}"
       ],
-      "output": "Leave the Output format empty. Run Flow must show [11, 12, 22, 25, 64]."
+      "output": "Run Flow must show Sorted marks: [11, 12, 22, 25, 64, 90]."
     }
   },
   {
     "id": "hard_1",
-    "title": "Monthly Expense Pie Chart",
-    "description": "A personal finance app records monthly expenses in 4 categories: Rent, Food, Transport and Entertainment. Calculate each category's percentage share of the total spending, then draw the result as a pie chart.",
+    "title": "Monthly Budget Pie Chart",
+    "description": "A finance app records monthly expenses in 4 categories. The person also puts 6000 into Savings, but Savings is not in the data: add it yourself as a 5th category. Calculate every category's percentage share of the total, then draw a pie chart titled \"Monthly Budget Pie Chart\" (type the title yourself).",
     "input": {
       "Rent": 12000,
       "Food": 6000,
       "Transport": 3000,
       "Entertainment": 3000
     },
-    "operation": "Total = sum of all amounts; percentage = amount ÷ total × 100; draw a pie chart",
-    "expected_output": "Rent: 50% | Food: 25% | Transport: 12.5% | Entertainment: 12.5%",
+    "operation": "Add Savings = 6000 → total = sum of all amounts → percentage = amount ÷ total × 100 → pie chart with the title typed in",
+    "expected_output": "Rent: 40% | Food: 20% | Transport: 10% | Entertainment: 10% | Savings: 20%",
     "image": "/assets/hard_expense_pie.png",
     "difficulty": "hard",
     "credits": 25,
     "required_modules": [
       "Input",
+      "SetValue",
       "TotalSum",
       "Percentage",
       "PieChart",
       "Output"
     ],
-    "prefilled_config": {
-      "PieChart": {
-        "title": "Monthly Expense Pie Chart"
-      }
-    },
     "round": 2,
     "time_limit_minutes": 10,
     "guide": {
       "input": "Drag an Input node and set Input Data to {\"Rent\": 12000, \"Food\": 6000, \"Transport\": 3000, \"Entertainment\": 3000}.",
       "mapping": [
-        "Input → TotalSum. It adds up every category (total = 24000) and passes the amounts on.",
-        "TotalSum → Percentage. For every category it does amount ÷ total × 100 (Rent: 12000 ÷ 24000 × 100 = 50%).",
-        "Percentage → PieChart. It draws one slice per category (the chart title is already filled in).",
-        "PieChart → Output."
+        "Input → Set Value. Type Key = Savings and Value = 6000. Savings becomes the 5th category.",
+        "Set Value → Total Amount. It adds up all 5 categories (total = 30000).",
+        "Total Amount → Percent. For each category: amount ÷ total × 100 (Rent: 12000 ÷ 30000 × 100 = 40%).",
+        "Percent → Pie Chart. Type the Title: Monthly Budget Pie Chart.",
+        "Pie Chart → Output."
       ],
-      "output": "Leave the Output format empty. Run Flow must draw the pie chart and show Rent: 50% | Food: 25% | Transport: 12.5% | Entertainment: 12.5%. The reference picture shows how the chart should look."
-    }
+      "output": "Leave the Output format empty. Run Flow must draw the pie chart and show Rent: 40% | Food: 20% | Transport: 10% | Entertainment: 10% | Savings: 20%."
+    },
+    "config_checks": [
+      {
+        "type": "PieChart",
+        "key": "title",
+        "equals": "Monthly Budget Pie Chart"
+      }
+    ]
   },
   {
     "id": "hard_2",
     "title": "Weekly Sales Bar Chart",
-    "description": "A store tracks daily sales for 5 days against a fixed sales target of $200. Mark each day as \"Above Target\" (sales ≥ target) or \"Below Target\", then draw the results as a bar chart (green = Above, red = Below).",
+    "description": "A store tracks daily sales for 7 days (Mon-Sun). The sales target is $200 but it is NOT in the data: enter it yourself. Mark each day \"Above Target\" (sales ≥ target) or \"Below Target\", then draw a bar chart titled \"Weekly Sales Bar Chart\" with the Y label \"Sales ($)\" (green = Above, red = Below).",
     "input": {
       "sales": [
         180,
         220,
         250,
         150,
-        300
-      ],
-      "target": 200
+        300,
+        170,
+        260
+      ]
     },
-    "operation": "For each day: sales ≥ target → Above Target, otherwise Below Target; draw a bar chart",
-    "expected_output": "Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target",
+    "operation": "Set target = 200 → each day: sales ≥ target → Above Target, otherwise Below Target → bar chart with the title and Y label typed in",
+    "expected_output": "Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target | Sat: Below Target | Sun: Above Target",
     "image": "/assets/hard_sales_bar.png",
     "difficulty": "hard",
     "credits": 25,
     "required_modules": [
       "Input",
+      "SetValue",
       "TargetCompare",
       "BarChart",
       "Output"
     ],
-    "prefilled_config": {
-      "BarChart": {
-        "title": "Weekly Sales Bar Chart"
-      }
-    },
     "round": 2,
     "time_limit_minutes": 10,
     "guide": {
-      "input": "Drag an Input node and set Input Data to {\"sales\": [180, 220, 250, 150, 300], \"target\": 200}. The days Mon-Fri are added automatically in order.",
+      "input": "Drag an Input node and set Input Data to {\"sales\": [180, 220, 250, 150, 300, 170, 260]}. The days Mon-Sun are added automatically in order.",
       "mapping": [
-        "Input → TargetCompare. For each day it checks sales ≥ target (180 → Below, 220 → Above, 250 → Above, 150 → Below, 300 → Above).",
-        "TargetCompare → BarChart. It draws one bar per day: green for Above Target, red for Below Target (the chart title is already filled in).",
-        "BarChart → Output."
+        "Input → Set Value. Type Key = target and Value = 200.",
+        "Set Value → Above / Below. For each day it checks sales ≥ target (180 → Below, 220 → Above, ...).",
+        "Above / Below → Bar Chart. Type Title = Weekly Sales Bar Chart and Y label = Sales ($). Bars are green for Above Target, red for Below Target.",
+        "Bar Chart → Output."
       ],
-      "output": "Leave the Output format empty. Run Flow must draw the bar chart and show Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target."
-    }
+      "output": "Leave the Output format empty. Run Flow must draw the bar chart and show Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target | Sat: Below Target | Sun: Above Target."
+    },
+    "config_checks": [
+      {
+        "type": "BarChart",
+        "key": "title",
+        "equals": "Weekly Sales Bar Chart"
+      },
+      {
+        "type": "BarChart",
+        "key": "y_label",
+        "equals": "Sales ($)"
+      }
+    ]
   }
 ]

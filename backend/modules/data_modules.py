@@ -2,6 +2,8 @@
 PYLOOM Data Modules
 Controlled Python functions for data input, data structures, and format conversion.
 """
+import json
+
 
 def execute_input(data, config=None):
     """Returns the input data directly or uses configured default if data is None."""
@@ -44,6 +46,31 @@ def execute_dictionary(val, config=None):
     if config and "key" in config and "value" in config:
         return {config["key"]: val}
     return {"data": val}
+
+def _typed_value(text):
+    """A value typed into a block arrives as text: numbers, true/false and JSON lists become real values."""
+    if not isinstance(text, str):
+        return text
+    try:
+        return json.loads(text.strip())
+    except ValueError:
+        return text.strip()
+
+
+def execute_set_value(val, config=None):
+    """Set Value: adds (or changes) one key of the data, e.g. key = target, value = 10."""
+    cfg = config or {}
+    key = str(cfg.get("key", "")).strip()
+    if not key:
+        raise ValueError("Set Value needs a key to set, e.g. target.")
+    if cfg.get("value") in (None, ""):
+        raise ValueError(f"Set Value needs a value for '{key}'.")
+    if not isinstance(val, dict):
+        raise ValueError("Set Value needs dictionary data (connect it right after the Input block).")
+    updated = dict(val)
+    updated[key] = _typed_value(cfg["value"])
+    return updated
+
 
 def execute_output(val, config=None):
     """Formats output value according to format string config."""

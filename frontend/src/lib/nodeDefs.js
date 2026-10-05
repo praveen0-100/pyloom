@@ -14,6 +14,15 @@ export const NODE_FIELDS = {
     { key: "replace_with", kind: "text", placeholder: "Replace with e.g. - (empty = delete)", raw: true, keepEmpty: true }
   ],
   Get: [{ key: "key", kind: "text", placeholder: "Key e.g. extra_hours" }],
+  SetValue: [
+    { key: "key", kind: "text", placeholder: "Key e.g. target" },
+    { key: "value", kind: "text", placeholder: "Value e.g. 200" }
+  ],
+  PieChart: [{ key: "title", kind: "text", placeholder: "Chart title" }],
+  BarChart: [
+    { key: "title", kind: "text", placeholder: "Chart title" },
+    { key: "y_label", kind: "text", placeholder: "Y label e.g. Sales ($)" }
+  ],
   Compare: [
     { key: "op", kind: "select", options: OPERATORS, placeholder: "==" },
     { key: "value", kind: "text", placeholder: "Value e.g. 40" }
@@ -59,7 +68,7 @@ export function readNodeField(field, el) {
 
 const CATEGORY = {
   Input: ["cat-data", "IN"], List: ["cat-data", "LS"], Dictionary: ["cat-data", "DC"],
-  Get: ["cat-data", "GT"], Output: ["cat-data", "OUT"],
+  Get: ["cat-data", "GT"], SetValue: ["cat-data", "SET"], Output: ["cat-data", "OUT"],
   Sum: ["cat-math", "∑"], Length: ["cat-math", "LN"], Average: ["cat-math", "AVG"],
   Min: ["cat-math", "MIN"], Max: ["cat-math", "MAX"], Add: ["cat-math", "+"],
   Subtract: ["cat-math", "-"], Multiply: ["cat-math", "×"], Divide: ["cat-math", "÷"],
@@ -89,7 +98,7 @@ const DESC = {
   Length: "Calculates total count / length", Average: "Calculates arithmetic mean",
   Divide: "Divides numerator by denominator", Subtract: "Subtracts operand or 2nd input",
   Multiply: "Multiplies by operand or 2nd input", Round: "Rounds a number to N decimals",
-  Get: "Reads key(s) from a dictionary", Reverse: "Reverses text",
+  Get: "Reads key(s) from a dictionary", SetValue: "Adds a key and value you type to the data", Reverse: "Reverses text",
   Compare: "Returns True/False for a comparison", IfElse: "Picks a value from a condition",
   Lookup: "Finds landmark country & coordinates", Hemisphere: "Classifies hemisphere from coordinates",
   Uppercase: "Converts string to uppercase", Replace: "Replaces search string matches",
@@ -112,7 +121,7 @@ const DESC = {
 };
 // Simple names shown to players; the engine keeps using the internal type names.
 const LABELS = {
-  Get: "Get Value", Compare: "Is True?", Reverse: "Reverse Text", Convert: "°F to °C",
+  Get: "Get Value", SetValue: "Set Value", Compare: "Is True?", Reverse: "Reverse Text", Convert: "°F to °C",
   Midpoint: "Middle", BinaryCompare: "Compare Middle", RepeatSearch: "Repeat Search",
   Div4Check: "Divisible by 4", CenturyRule: "Century Rule", CompareSwap: "Swap Pairs",
   PassRepeat: "Repeat Passes", TotalSum: "Total Amount", Percentage: "Percent",
@@ -127,15 +136,16 @@ export const getModuleDesc = (type) => DESC[type] || "Processes flow data";
 export const MODULE_LIBRARY = [
   { id: "io", title: "Input / Output", cls: "cat-data", modules: [
     ["Input", "IN", "Start here: type the question data"], ["Output", "OUT", "End here: the final result"],
-    ["Get", "GT", "Read a key from a dictionary"] ] },
+    ["Get", "GT", "Read a key from a dictionary"], ["SetValue", "SET", "Type a key and value to add to the data"] ] },
   { id: "math", title: "Math", cls: "cat-math", modules: [
     ["Sum", "∑", "Add up the list"], ["Length", "LN", "Count the items"],
     ["Add", "+", "Add two values"], ["Subtract", "-", "Subtract two values"],
     ["Multiply", "×", "Multiply values"], ["Divide", "÷", "First input ÷ second input"],
     ["Square", "x²", "Multiply a number by itself"], ["Round", "RD", "Round to decimals"],
     ["Convert", "°", "Fahrenheit → Celsius"] ] },
-  { id: "logic", title: "Compare & Text", cls: "cat-logic", modules: [
-    ["Compare", "?", "Returns True / False"], ["Reverse", "RV", "Reverse text", "cat-string"] ] },
+  { id: "logic", title: "Logic & Text", cls: "cat-logic", modules: [
+    ["Compare", "?", "Returns True / False"], ["IfElse", "IF", "Pick one of two answers you type"],
+    ["Filter", "FL", "Keep numbers between Min and Max"], ["Reverse", "RV", "Reverse text", "cat-string"] ] },
   { id: "algo", title: "Search & Sort", cls: "cat-algo", modules: [
     ["Midpoint", "MID", "Middle index of the range"], ["BinaryCompare", "<=>", "Middle vs target"],
     ["RepeatSearch", "↻", "Repeat until found"], ["Div4Check", "÷4", "Divisible by 4?"],

@@ -45,7 +45,8 @@ def execute_add(val, config=None):
         return val[0] + val[1]
     op = config.get("operand", 0) if config else 0
     try:
-        return val + float(op)
+        total = val + float(op)
+        return int(total) if isinstance(val, int) and not isinstance(val, bool) and total == int(total) else total
     except Exception:
         return val
 
