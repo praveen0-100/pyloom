@@ -72,8 +72,17 @@ function ParticipantRow({ record, onChanged, onRemoved }) {
     setBusy("");
     onChanged();
   };
+  // Delete is two clicks on the button itself (no modal dialog): the second click must come within 4s.
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return undefined;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  const retry = () => act("retry");
   const remove = async () => {
-    if (!window.confirm(`Delete participant "${teamId}"? This permanently removes their account and saved progress.`)) return;
+    if (!armed) { setArmed(true); return; }
+    setArmed(false);
     setBusy("delete");
     try {
       const res = await fetch(`/api/admin/participants/${encodeURIComponent(teamId)}`, { method: "DELETE" });
@@ -112,8 +121,11 @@ function ParticipantRow({ record, onChanged, onRemoved }) {
           </button>
         </>
       )}
+      <button type="button" className="btn btn-secondary retry-participant" disabled={busy === "retry"} onClick={retry} title="Erase this player's answers, scores and trials so they can start again (they stay logged in)">
+        {busy === "retry" ? "Resetting…" : busy === "retry-failed" ? "Retry failed – try again" : "Reset for retry"}
+      </button>
       <button type="button" className="btn btn-danger delete-participant" disabled={busy === "delete"} onClick={remove}>
-        {busy === "delete" ? "Deleting…" : busy === "delete-failed" ? "Retry delete" : "Delete"}
+        {busy === "delete" ? "Deleting…" : busy === "delete-failed" ? "Retry delete" : armed ? "Click again to delete" : "Delete"}
       </button>
     </div>
   );
@@ -214,7 +226,7 @@ function Dashboard({ onSignedOut }) {
       timerBase.current = { timer: result.timer, at: performance.now() };
       setData((d) => (d ? { ...d, timer: result.timer } : d));
       const label = action === "restart" ? "restarted" : `${action}${action.endsWith("e") ? "d" : "ed"}`;
-      setTimerMsg(action === "start" ? "Both timers started." : `${timer === "main" ? "Main" : "Level"} timer ${label}.`);
+      setTimerMsg(action === "start" ? "Both timers started." : `${timer === "main" ? "Main timer" : timer === "level" ? "Level timer" : "Both timers"} ${label}.`);
     } catch (error) {
       setTimerMsg(error.message);
     }
@@ -274,9 +286,19 @@ function Dashboard({ onSignedOut }) {
     onSignedOut(true);
   };
 
+  // Terminate is two clicks (no modal dialog): the second must come within 4s.
+  const [termArmed, setTermArmed] = useState("");
+  useEffect(() => {
+    if (!termArmed) return undefined;
+    const t = setTimeout(() => setTermArmed(""), 4000);
+    return () => clearTimeout(t);
+  }, [termArmed]);
   const onlineAction = async (event, p, kill) => {
+    if (kill) {
+      if (termArmed !== p.team_id) { setTermArmed(p.team_id); return; }
+      setTermArmed("");
+    }
     const url = `/api/admin/participants/${encodeURIComponent(p.team_id)}`;
-    if (kill && !window.confirm(`Terminate "${p.team_id}"? They will be eliminated and logged out.`)) return;
     event.currentTarget.disabled = true;
     try {
       const res = kill
@@ -362,6 +384,8 @@ function Dashboard({ onSignedOut }) {
         </div>
         <div className="admin-timer-actions">
           <button type="button" className="btn btn-primary" id="start-timers-btn" onClick={() => controlTimer("both", "start")}>{started ? "Restart both timers" : "Start both timers"}</button>
+          <button type="button" className="btn btn-secondary" id="pause-both-timers-btn" disabled={!started || (timer.main_paused && timer.level_paused)} onClick={() => controlTimer("both", "pause")}>Pause both timers</button>
+          <button type="button" className="btn btn-primary" id="resume-both-timers-btn" disabled={!started || (!timer.main_paused && !timer.level_paused)} onClick={() => controlTimer("both", "resume")}>Resume both timers</button>
           <button type="button" className="btn btn-secondary" id="pause-main-timer-btn" disabled={!started || timer.main_paused} onClick={() => controlTimer("main", "pause")}>Pause main timer</button>
           <button type="button" className="btn btn-primary" id="resume-main-timer-btn" disabled={!started || !timer.main_paused} onClick={() => controlTimer("main", "resume")}>Resume main timer</button>
           <button type="button" className="btn btn-secondary" id="pause-level-timer-btn" disabled={!started || timer.level_paused} onClick={() => controlTimer("level", "pause")}>Pause level timer</button>
@@ -455,7 +479,7 @@ function Dashboard({ onSignedOut }) {
                 <td><span className="status-badge status-accepted">ONLINE</span> {p.seconds_since_seen}s ago</td>
                 <td className="cell-actions">
                   <button type="button" className="btn btn-secondary online-fullscreen" onClick={(e) => onlineAction(e, p, false)}>{p.violation ? "Unlock session" : p.forced_fullscreen ? "Release full screen" : "Full screen"}</button>
-                  <button type="button" className="btn btn-danger online-terminate" onClick={(e) => onlineAction(e, p, true)}>Terminate</button>
+                  <button type="button" className="btn btn-danger online-terminate" onClick={(e) => onlineAction(e, p, true)}>{termArmed === p.team_id ? "Click again to terminate" : "Terminate"}</button>
                 </td>
               </tr>
             )) : <tr><td colSpan="7" style={{ color: "var(--text-dim)", textAlign: "center" }}>No participants online.</td></tr>}

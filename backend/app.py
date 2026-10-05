@@ -424,8 +424,8 @@ def control_timer():
     timer_name = str(payload.get("timer", "both" if action == "start" else "")).lower()
     if action not in {"start", "pause", "resume", "restart"}:
         return jsonify({"success": False, "error": "Action must be start, pause, resume, or restart"}), 400
-    if timer_name not in {"main", "level", "both"} or (timer_name == "both" and action != "start"):
-        return jsonify({"success": False, "error": "Timer must be main or level (or both for start)"}), 400
+    if timer_name not in {"main", "level", "both"} or (timer_name == "both" and action not in {"start", "pause", "resume"}):
+        return jsonify({"success": False, "error": "Timer must be main or level (or both for start, pause and resume)"}), 400
 
     timer_state = _load_timer_state()
     _timer_snapshot(timer_state)
@@ -447,10 +447,14 @@ def control_timer():
             timer_state["level_paused"] = False
             timer_state["level_run_seconds"] = 0.0
             kv_set(LEVEL_ENTRIES_KEY, {})
-    elif timer_name == "main":
-        timer_state["main_paused"] = action == "pause" or timer_state["main_remaining_seconds"] <= 0
     else:
-        timer_state["level_paused"] = action == "pause"
+        paused = action == "pause"
+        if timer_name in {"main", "both"}:
+            timer_state["main_paused"] = paused or timer_state["main_remaining_seconds"] <= 0
+        if timer_name in {"level", "both"}:
+            timer_state["level_paused"] = paused
+        if timer_name == "both":
+            log_activity("ADMIN", "timer", f"Admin {action}d both timers")
     timer_state["last_tick"] = time.time()
     snapshot = _timer_snapshot(timer_state)
     kv_set(TIMER_KEY, timer_state)
@@ -547,6 +551,14 @@ def _wipe_participant_data(team_id):
         shard_drop(key, team_id)
 
 
+def _epoch_for(rows, participant):
+    """Browsers wipe their saved state when this changes: the admin's global reset or this
+    participant's own Retry."""
+    epoch = str(rows.get(RESET_EPOCH_KEY, "0"))
+    retry = (participant or {}).get("retry_epoch")
+    return f"{epoch}|{retry}" if retry else epoch
+
+
 @app.route("/api/participant/status/<path:team_id>", methods=["GET"])
 def participant_status(team_id):
     found = shard_items("participants.json", [team_id])
@@ -585,7 +597,7 @@ def participant_heartbeat():
                 and time.time() - entry.get("last_seen", 0) < PRESENCE_TTL_SECONDS
                 and started < entry.get("session_started", 0)):
             return jsonify({"success": True, "superseded": True,
-                            "reset_epoch": rows.get(RESET_EPOCH_KEY, "0"),
+                            "reset_epoch": _epoch_for(rows, participant),
                             "violation": keys[VIOLATIONS_KEY] in rows, "forced_lock": True})
         entry["session_id"], entry["session_started"] = session_id, started
     # A hidden tab only counts once the participant had entered full screen (armed).
@@ -597,7 +609,7 @@ def participant_heartbeat():
         log_activity(team_id, "question", f"Opened question {mission_id}")
     return jsonify({
         "success": True,
-        "reset_epoch": rows.get(RESET_EPOCH_KEY, "0"),
+        "reset_epoch": _epoch_for(rows, participant),
         "violation": keys[VIOLATIONS_KEY] in rows,
         "forced_lock": True,
     })
@@ -1452,6 +1464,20 @@ def delete_admin_participant(team_id):
     _wipe_participant_data(team_id)
     shard_put(DELETED_PARTICIPANTS_KEY, team_id, True)
 
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/participants/<path:team_id>/retry", methods=["POST"])
+def retry_admin_participant(team_id):
+    """Admin-only: give one participant a fresh start (all questions, scores, trials and level
+    clocks erased) without deleting them: they stay logged in and activated."""
+    participant = shard_item("participants.json", team_id)
+    if not participant:
+        return jsonify({"success": False, "error": "Participant not found"}), 404
+    _wipe_participant_data(team_id)
+    participant["retry_epoch"] = str(time.time())
+    shard_put("participants.json", team_id, participant)
+    log_activity("ADMIN", "reset", f"Admin reset {team_id} for a retry")
     return jsonify({"success": True})
 
 
