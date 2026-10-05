@@ -300,53 +300,69 @@ _unlock_cache = {}
 UNLOCK_CACHE_SECONDS = 3.0
 
 
-def _level_unlocked(team_id, level):
-    """Cached for a few seconds: every console polls the timer, and this reads progress."""
+def _level_attempted(team_id, level):
+    """True once every question of `level` has a recorded attempt (tried, wrong or completed).
+    Cached for a few seconds: every console polls the timer, and this reads progress."""
     key = (team_id, level)
     hit = _unlock_cache.get(key)
     now = time.time()
     if hit and now - hit[0] < UNLOCK_CACHE_SECONDS:
         return hit[1]
-    value = _level_unlocked_uncached(team_id, level)
+    records = shard_item("progress.json", team_id, {})
+    ids = [m["id"] for m in load_json("missions.json")
+           if str(m.get("difficulty", "easy")).lower() == level]
+    value = bool(ids) and all(records.get(mid, {}).get("attempts", 0) > 0 for mid in ids)
     _unlock_cache[key] = (now, value)
     return value
-
-
-def _level_unlocked_uncached(team_id, level):
-    """Easy runs from the start. Medium/hard timers only start once every question of the
-    previous level has been attempted (tried, wrong or completed - any recorded attempt)."""
-    idx = LEVEL_ORDER.index(level)
-    if idx == 0:
-        return True
-    previous = LEVEL_ORDER[idx - 1]
-    records = shard_item("progress.json", team_id, {})
-    prev_ids = [m["id"] for m in load_json("missions.json")
-                if str(m.get("difficulty", "easy")).lower() == previous]
-    return bool(prev_ids) and all(records.get(mid, {}).get("attempts", 0) > 0 for mid in prev_ids)
 
 
 def _team_level_clock(team_id):
     return shard_item(LEVEL_ENTRIES_KEY, team_id, {"used": {}, "active": None, "g0": 0.0})
 
 
-def _level_view(snapshot, team_id, level):
-    """The level countdown for `level`.
+def _level_start(team_id, level, run_seconds):
+    """The admin level-clock reading at which this participant's `level` timer started, or None
+    while the level is still locked.
 
-    Every level has its own timer per participant. It starts when the participant first
-    enters the level (after the admin started the timers), runs only while they are on
-    that level, and is paused - with its time kept - while they are on another one.
-    Time is measured on the admin's level clock, so admin pause/resume applies to all.
+    Each level has its own countdown. Easy starts with the timers. Medium/hard start when the
+    participant has attempted every question of the previous level, or - if they did not - the
+    moment the previous level's own timer ran out, so one level expiring never eats the next
+    level's time.
     """
+    idx = LEVEL_ORDER.index(level)
+    if idx == 0:
+        return 0.0
+    clock = _team_level_clock(team_id)
+    starts = clock.get("start") or {}
+    if level in starts:
+        return float(starts[level])
+    previous = LEVEL_ORDER[idx - 1]
+    prev_start = _level_start(team_id, previous, run_seconds)
+    if prev_start is None:
+        return None
+    prev_end = prev_start + LEVEL_TIME_LIMITS[previous]
+    if run_seconds >= prev_end:
+        start = prev_end
+    elif _level_attempted(team_id, previous):
+        start = run_seconds
+    else:
+        return None
+    clock["start"] = {**starts, level: start}
+    shard_put(LEVEL_ENTRIES_KEY, team_id, clock)
+    return start
+
+
+def _level_view(snapshot, team_id, level):
+    """The level countdown for `level`: its limit minus the admin's level clock since this
+    participant's start of that level (see _level_start). Admin pause/resume applies to all."""
     total = LEVEL_TIME_LIMITS[level]
-    unlocked = _level_unlocked(team_id, level)
-    # One shared level clock for everyone: login/logout or switching levels never
-    # changes it, so every participant sees the same time.
-    active = bool(snapshot["started"] and unlocked)
-    used = snapshot["level_run_seconds"] if active else 0.0
+    start = _level_start(team_id, level, snapshot["level_run_seconds"]) if snapshot["started"] else None
+    active = start is not None
+    used = max(0.0, snapshot["level_run_seconds"] - start) if active else 0.0
     return {
         "level": level,
         "level_entered": active,
-        "level_unlocked": unlocked,
+        "level_unlocked": active,
         "level_remaining_seconds": round(max(0, total - used), 2),
         "level_total_seconds": total,
     }

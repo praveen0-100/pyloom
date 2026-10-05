@@ -592,8 +592,10 @@ export default function ParticipantConsole({ onRevoked }) {
 
   // Run flow only EVALUATES the mapping against the test cases (nothing is recorded);
   // Submit solution is what saves progress, awards the score and updates the leaderboard.
+  const trialsExhausted = () => trialRef.current.failed >= MAX_MAPPING_TRIALS;
   const handleRunFlow = async () => {
     if (advancing.current) return;
+    if (trialsExhausted()) { showToast("No mapping trials left for this question.", "error"); return; }
     markMissionAttempted();
     setResult({ text: "Validating and executing graph...", error: false });
     try {
@@ -620,6 +622,7 @@ export default function ParticipantConsole({ onRevoked }) {
   };
 
   const handleSubmit = async () => {
+    if (trialsExhausted()) { showToast("No mapping trials left for this question.", "error"); return; }
     try {
       const res = await API.submitSolution(getTeamId(), missionIdRef.current, live.current.nodes, live.current.edges, trialRef.current.hintUsed);
       // Browser alert() dialogs steal focus and drop the page out of full screen (a false
