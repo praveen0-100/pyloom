@@ -102,21 +102,23 @@ export default function ParticipantConsole({ onRevoked }) {
     saveEventCredits(state);
     setEventCredits(state.credits);
   };
-  // Event credits start at 10 (easy). Fully completing a level and then ENTERING the next one
-  // adds 10 more to the credits the participant already has (once per level).
+  // Event credits start at 10 (easy). Finishing a level (every question attempted, or its timer
+  // ran out) and then ENTERING the next one awards up to 10 more, in proportion to how well the
+  // participant did in the level they finished: 10 x (score earned / level maximum). Once per level.
   const rewardOnLevelEntry = (level, state) => {
     const prev = LEVEL_ORDER[LEVEL_ORDER.indexOf(level) - 1];
     if (!prev) return;
     const rewarded = state.rewardedLevels || (state.rewardedLevels = []);
     if (rewarded.includes(level)) return;
-    const prevMissions = live.current.missions.filter((m) => levelOf(m) === prev);
-    const prevDone = prevMissions.length > 0 && prevMissions.every((m) => gamRef.current.completed.includes(m.id));
-    if (!prevDone) return;
+    if (!levelDone(prev)) return;
     rewarded.push(level);
     // Credits already granted on completion by an older build must not be paid twice.
     if ((state.completedLevels || []).includes(prev)) return;
-    state.credits += 10;
-    showToast(`${level} level unlocked · +10 credits`, "success");
+    const earned = live.current.missions.filter((m) => levelOf(m) === prev)
+      .reduce((sum, m) => sum + Math.min(progressRef.current[m.id]?.best_credits || 0, QUESTION_CREDITS[prev] || 0), 0);
+    const bonus = Math.round(10 * Math.min(1, earned / (LEVEL_SCORE[prev] || 1)));
+    state.credits += bonus;
+    showToast(`${level} level unlocked · +${bonus} credits for your ${prev} performance (${earned}/${LEVEL_SCORE[prev]})`, "success");
   };
 
   // ---- timers + full-screen lock ----
