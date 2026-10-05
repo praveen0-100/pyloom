@@ -502,18 +502,48 @@ export default function ParticipantConsole({ onRevoked }) {
     }
   };
 
-  // Finishing every question of a level moves the participant to the next one.
-  const maybeAdvanceLevel = () => {
+  // After a submission (right or wrong) the participant moves on by themselves: next question of the
+  // level, and after the level's last question the first question of the next level. If that level is
+  // still locked because an earlier question was skipped, they are taken to the first skipped one.
+  const advanceAfterSubmit = () => {
+    const id = missionIdRef.current;
     const level = currentMissionLevel();
-    const done = gamRef.current.completed;
-    const inLevel = live.current.missions.filter((m) => levelOf(m) === level);
-    if (!inLevel.length || !inLevel.every((m) => done.includes(m.id))) return;
+    const all = live.current.missions;
+    const inLevel = all.filter((m) => levelOf(m) === level);
+    const next = inLevel[inLevel.findIndex((m) => m.id === id) + 1];
+    if (next) { loadMissionData(next.id); return; }
     const nextLevel = LEVEL_ORDER[LEVEL_ORDER.indexOf(level) + 1];
-    const nextQuestion = nextLevel && live.current.missions.find((m) => levelOf(m) === nextLevel && !done.includes(m.id));
-    if (!nextQuestion) return;
-    showToast(`${level} level complete! Moving to ${nextLevel}…`, "success");
-    setTimeout(() => loadMissionData(nextQuestion.id), 1800);
+    if (nextLevel && levelOpen(nextLevel)) {
+      const first = all.find((m) => levelOf(m) === nextLevel);
+      if (first) {
+        showToast(`${level} level finished! Moving to ${nextLevel}…`, "success");
+        loadMissionData(first.id);
+      }
+      return;
+    }
+    const skipped = inLevel.find((m) => m.id !== id && !(progressRef.current[m.id]?.attempts > 0) && !gamRef.current.completed.includes(m.id));
+    if (skipped) {
+      showToast(`Submit the ${level} questions you skipped to open ${nextLevel || "the next level"}.`, "error");
+      loadMissionData(skipped.id);
+    }
   };
+  const advanceRef = useRef(advanceAfterSubmit);
+  advanceRef.current = advanceAfterSubmit;
+  // Show the score for a moment (or until OK), then move on.
+  const submitResultRef = useRef(null);
+  submitResultRef.current = submitResult;
+  const closeSubmitResult = useCallback(() => {
+    const current = submitResultRef.current;
+    if (!current) return; // already closed (timer and button can both fire)
+    submitResultRef.current = null;
+    setSubmitResult(null);
+    if (!current.failed) advanceRef.current();
+  }, []);
+  useEffect(() => {
+    if (!submitResult || submitResult.failed) return undefined;
+    const t = setTimeout(closeSubmitResult, 3000);
+    return () => clearTimeout(t);
+  }, [submitResult, closeSubmitResult]);
 
   const updateGamification = (res) => {
     if (res.progress) setProgressRecord(missionIdRef.current, res.progress);
@@ -533,7 +563,6 @@ export default function ParticipantConsole({ onRevoked }) {
       showToast(`Mission complete · +${xpAward} XP`, "success");
     }
     commitGam(state);
-    if (completedNow) maybeAdvanceLevel();
   };
 
   // ---- trials / hints ----
@@ -776,7 +805,7 @@ export default function ParticipantConsole({ onRevoked }) {
 
       <LogoutModal open={logoutOpen} busy={loggingOut} onCancel={() => setLogoutOpen(false)} onConfirm={confirmLogout} />
 
-      <SubmitResultModal result={submitResult} onClose={() => setSubmitResult(null)} />
+      <SubmitResultModal result={submitResult} onClose={closeSubmitResult} />
 
       <HintModal
         open={hintOpen}

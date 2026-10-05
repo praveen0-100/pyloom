@@ -132,3 +132,5 @@ img, svg, video { max-width: 100%; }
 .category-chip { border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-muted); border-radius: 999px; padding: 4px 10px; font-size: 0.6875rem; font-weight: 600; cursor: pointer; }
 .category-chip.is-active { background: var(--rf-brand, #7c3aed); border-color: transparent; color: #fff; }
 .module-name { font-size: 0.875rem; }
+
+.mission-operation-code { margin: 4px 0 0; padding: 8px 10px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-sm, 6px); font-family: ui-monospace, Consolas, monospace; font-size: 0.75rem; line-height: 1.45; white-space: pre; overflow-x: auto; color: var(--text-main); }

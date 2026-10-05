@@ -4,7 +4,7 @@
     "title": "Voting Eligibility Checker",
     "description": "An election portal checks whether a person is eligible to vote. A person is eligible only if their age is 18 or above.",
     "input": 20,
-    "operation": "Compare the age with the voting age limit: age >= 18",
+    "operation": "eligible = age >= 18\nprint(eligible)",
     "expected_output": "True",
     "difficulty": "easy",
     "required_modules": [
@@ -31,7 +31,7 @@
       "weight": 70,
       "height": 1.75
     },
-    "operation": "BMI = weight / height²  (round to 1 decimal)",
+    "operation": "bmi = weight / (height ** 2)\nprint(round(bmi, 1))",
     "expected_output": "22.9",
     "difficulty": "easy",
     "required_modules": [
@@ -71,7 +71,7 @@
     "title": "Palindrome String Checker",
     "description": "Given a word, check if it reads the same backward as forward (a palindrome).",
     "input": "radar",
-    "operation": "Check if the word is equal to its reverse",
+    "operation": "print(word == word[::-1])",
     "expected_output": "True",
     "difficulty": "easy",
     "required_modules": [
@@ -98,7 +98,7 @@
     "title": "Fahrenheit to Celsius Converter",
     "description": "A weather app converts a temperature reading from Fahrenheit to Celsius. Formula: C = (F - 32) × 5 / 9.",
     "input": 98.6,
-    "operation": "C = (F - 32) × 5 / 9",
+    "operation": "celsius = (f - 32) * 5 / 9\nprint(celsius)",
     "expected_output": "37.0",
     "difficulty": "easy",
     "required_modules": [
@@ -127,7 +127,7 @@
       30,
       40
     ],
-    "operation": "Average = sum ÷ count",
+    "operation": "average = sum(numbers) / len(numbers)\nprint(average)",
     "expected_output": "25.0",
     "difficulty": "easy",
     "required_modules": [
@@ -165,7 +165,7 @@
         14
       ]
     },
-    "operation": "Set target = 10 → Midpoint → Compare → Repeat → add 1 (index → position) → format the answer as Position: <number>",
+    "operation": "target = 10\nindex, low, high = -1, 0, len(array) - 1\nwhile low <= high:\n    mid = (low + high) // 2\n    if array[mid] == target:\n        index = mid\n        break\n    elif target < array[mid]:\n        high = mid - 1\n    else:\n        low = mid + 1\nprint(f\"Position: {index + 1}\")",
     "expected_output": "Position: 5",
     "difficulty": "medium",
     "required_modules": [
@@ -197,7 +197,7 @@
     "title": "Next-Year Leap Checker",
     "description": "Given a year, check the NEXT year (year + 1). It is a leap year if divisible by 4, except century years (divisible by 100), which must also be divisible by 400. Show the answer as \"Next year: Leap Year\" or \"Next year: Common Year\".",
     "input": 1999,
-    "operation": "Year + 1 → divisible by 4? → century rule → if True then \"Leap Year\" else \"Common Year\" → format as Next year: <answer>",
+    "operation": "year = year + 1\nleap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)\nanswer = \"Leap Year\" if leap else \"Common Year\"\nprint(f\"Next year: {answer}\")",
     "expected_output": "Next year: Leap Year",
     "difficulty": "medium",
     "required_modules": [
@@ -236,7 +236,7 @@
       11,
       90
     ],
-    "operation": "Keep marks between 10 and 100 → bubble sort (compare & swap, repeat) → format as Sorted marks: <list>",
+    "operation": "valid = [m for m in marks if 10 <= m <= 100]\nswapped = True\nwhile swapped:\n    swapped = False\n    for i in range(len(valid) - 1):\n        if valid[i] > valid[i + 1]:\n            valid[i], valid[i + 1] = valid[i + 1], valid[i]\n            swapped = True\nprint(f\"Sorted marks: {valid}\")",
     "expected_output": "Sorted marks: [11, 12, 22, 25, 64, 90]",
     "difficulty": "medium",
     "required_modules": [
@@ -269,7 +269,7 @@
       "Transport": 3000,
       "Entertainment": 3000
     },
-    "operation": "Add Savings = 6000 → total = sum of all amounts → percentage = amount ÷ total × 100 → pie chart with the title typed in",
+    "operation": "amounts[\"Savings\"] = 6000\ntotal = sum(amounts.values())\npercent = {k: round(v / total * 100, 2) for k, v in amounts.items()}\npie_chart(percent, title=\"Monthly Budget Pie Chart\")",
     "expected_output": "Rent: 40% | Food: 20% | Transport: 10% | Entertainment: 10% | Savings: 20%",
     "image": "/assets/hard_expense_pie.png",
     "difficulty": "hard",
@@ -318,7 +318,7 @@
         260
       ]
     },
-    "operation": "Set target = 200 → each day: sales ≥ target → Above Target, otherwise Below Target → bar chart with the title and Y label typed in",
+    "operation": "target = 200\ndays = [\"Mon\", \"Tue\", \"Wed\", \"Thu\", \"Fri\", \"Sat\", \"Sun\"]\nstatus = [\"Above Target\" if s >= target else \"Below Target\" for s in sales]\nbar_chart(days, sales, status, title=\"Weekly Sales Bar Chart\", y_label=\"Sales ($)\")",
     "expected_output": "Mon: Below Target | Tue: Above Target | Wed: Above Target | Thu: Below Target | Fri: Above Target | Sat: Below Target | Sun: Above Target",
     "image": "/assets/hard_sales_bar.png",
     "difficulty": "hard",

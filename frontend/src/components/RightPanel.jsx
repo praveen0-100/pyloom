@@ -102,7 +102,7 @@ export default function RightPanel({
           </div>
           <p id="mission-desc" className="mission-desc">{mission ? mission.description : "Calculate the average of student marks."}</p>
           <div className="mission-details">
-            <div><span>Operation</span><p id="mission-operation">{mission?.operation || "—"}</p></div>
+            <div><span>Operation (code)</span><pre id="mission-operation" className="mission-operation-code">{mission?.operation || "—"}</pre></div>
             <div>
               <span>Expected output</span>
               <pre id="mission-expected" hidden={expectedHidden}>{formatMissionValue(mission?.expected_output)}</pre>
