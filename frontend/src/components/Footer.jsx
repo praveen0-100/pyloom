@@ -6,7 +6,7 @@ export default function Footer({ trialsLeft, maxTrials, locked, onClear, onRun, 
         <button type="button" className="btn btn-secondary" id="reset-canvas-btn" onClick={onClear}>Clear canvas</button>
         <span className="trial-counter" id="trial-counter" aria-live="polite">Mapping trials: {trialsLeft} / {maxTrials}</span>
         <button type="button" className="btn btn-primary" id="run-flow-btn" disabled={locked || trialsLeft <= 0} title={trialsLeft <= 0 ? "No mapping trials left for this question" : undefined} onClick={onRun}>Run flow</button>
-        <button type="button" className="btn btn-success" id="submit-flow-btn" disabled={locked || trialsLeft <= 0} title={trialsLeft <= 0 ? "No mapping trials left for this question" : undefined} onClick={onSubmit}>Submit solution</button>
+        <button type="button" className="btn btn-success" id="submit-flow-btn" disabled={locked} title={trialsLeft <= 0 ? "No trials left: submit your final solution" : undefined} onClick={onSubmit}>Submit solution</button>
       </div>
     </footer>
   );

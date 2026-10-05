@@ -652,8 +652,8 @@ export default function ParticipantConsole({ onRevoked }) {
     }
   };
 
+  // Submit stays available after the trials run out: only Run flow is disabled then.
   const handleSubmit = async () => {
-    if (trialsExhausted()) { showToast("No mapping trials left for this question.", "error"); return; }
     try {
       const res = await API.submitSolution(getTeamId(), missionIdRef.current, live.current.nodes, live.current.edges, trialRef.current.hintUsed);
       // Browser alert() dialogs steal focus and drop the page out of full screen (a false
