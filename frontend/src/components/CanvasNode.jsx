@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from "react";
-import { NODE_FIELDS, fieldDisplayValue, getModuleCategory, getModuleDesc, readNodeField } from "../lib/nodeDefs";
+import { NODE_FIELDS, fieldDisplayValue, getModuleCategory, getModuleDesc, getModuleLabel, readNodeField } from "../lib/nodeDefs";
 
 /**
  * One block on the canvas. Fields are uncontrolled (typing edits the block directly, like the
@@ -79,7 +79,7 @@ function CanvasNode({ node, selected, connecting, getZoom, getViewportEl, regist
       <div className="node-header" onPointerDown={startDrag}>
         <div className="node-title-group">
           <div className={`node-type-icon ${category.class}`}>{category.icon}</div>
-          <div className="node-title">{node.type}</div>
+          <div className="node-title">{getModuleLabel(node.type)}</div>
         </div>
         <div className="node-actions">
           <button className="node-btn delete-btn" title="Delete" onClick={(e) => { e.stopPropagation(); onDelete(node.id); }}>✕</button>

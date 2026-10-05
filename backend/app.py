@@ -458,7 +458,7 @@ def control_timer():
     return jsonify({"success": True, "timer": snapshot})
 
 
-@app.route("/api/admin/participants/<team_id>/fullscreen", methods=["POST"])
+@app.route("/api/admin/participants/<path:team_id>/fullscreen", methods=["POST"])
 def control_single_participant_fullscreen(team_id):
     """Require (or stop requiring) full screen for one participant, independent of everyone else."""
     action = str((request.get_json() or {}).get("action", "")).lower()
@@ -547,7 +547,7 @@ def _wipe_participant_data(team_id):
         shard_drop(key, team_id)
 
 
-@app.route("/api/participant/status/<team_id>", methods=["GET"])
+@app.route("/api/participant/status/<path:team_id>", methods=["GET"])
 def participant_status(team_id):
     found = shard_items("participants.json", [team_id])
     if shard_item(DELETED_PARTICIPANTS_KEY, team_id):
@@ -1095,7 +1095,7 @@ def run_flow():
     })
 
 
-@app.route("/api/participant/score/<team_id>", methods=["GET"])
+@app.route("/api/participant/score/<path:team_id>", methods=["GET"])
 def participant_score(team_id):
     """Final score summary shown to a participant when they exit the event."""
     missions = load_json("missions.json")
@@ -1117,7 +1117,7 @@ def participant_score(team_id):
     return jsonify({"success": True, "total": total, "max_total": TOTAL_SCORE, "levels": levels, "rank": rank, "players": len(board)})
 
 
-@app.route("/api/progress/<team_id>", methods=["GET"])
+@app.route("/api/progress/<path:team_id>", methods=["GET"])
 def get_progress(team_id):
     return jsonify({"success": True, "progress": shard_item("progress.json", team_id, {})})
 
@@ -1367,7 +1367,7 @@ def get_admin_summary():
     })
 
 
-@app.route("/api/admin/progress/<team_id>/<mission_id>", methods=["PUT"])
+@app.route("/api/admin/progress/<path:team_id>/<mission_id>", methods=["PUT"])
 def edit_admin_progress(team_id, mission_id):
     payload = request.get_json() or {}
     flow = payload.get("flow")
@@ -1406,7 +1406,7 @@ def add_admin_participant():
     return jsonify({"success": True, "participant": participants[-1]})
 
 
-@app.route("/api/admin/participants/<team_id>/allow", methods=["POST"])
+@app.route("/api/admin/participants/<path:team_id>/allow", methods=["POST"])
 def allow_admin_participant(team_id):
     participants = load_json("participants.json")
     participant = next((p for p in participants if p.get("team_id") == team_id), None)
@@ -1417,7 +1417,7 @@ def allow_admin_participant(team_id):
     return jsonify({"success": True, "participant": participant})
 
 
-@app.route("/api/admin/participants/<team_id>/revoke", methods=["POST"])
+@app.route("/api/admin/participants/<path:team_id>/revoke", methods=["POST"])
 def revoke_admin_participant(team_id):
     """Send an allowed participant back to pending (they must be activated again)."""
     participants = load_json("participants.json")
@@ -1432,7 +1432,7 @@ def revoke_admin_participant(team_id):
 DELETED_PARTICIPANTS_KEY = "deleted_participants"
 
 
-@app.route("/api/admin/participants/<team_id>", methods=["DELETE"])
+@app.route("/api/admin/participants/<path:team_id>", methods=["DELETE"])
 def delete_admin_participant(team_id):
     """Admin-only: permanently remove a participant, their saved progress, and
     force their participant console to log out. The team_id is tombstoned so
@@ -1470,7 +1470,7 @@ def delete_all_users():
     return jsonify({"success": True, "deleted": len(team_ids)})
 
 
-@app.route("/api/admin/participants/<team_id>", methods=["PUT"])
+@app.route("/api/admin/participants/<path:team_id>", methods=["PUT"])
 def update_admin_participant(team_id):
     """Admin-only: edit a participant's profile fields (name, college, year of study)."""
     payload = request.get_json() or {}

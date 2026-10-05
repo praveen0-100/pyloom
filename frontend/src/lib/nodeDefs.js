@@ -110,28 +110,38 @@ const DESC = {
   CountGrades: "Counts the students in each grade",
   PieChart: "Draws a pie chart", BarChart: "Draws a green / red bar chart"
 };
+// Simple names shown to players; the engine keeps using the internal type names.
+const LABELS = {
+  Get: "Get Value", Compare: "Is True?", Reverse: "Reverse Text", Convert: "°F to °C",
+  Midpoint: "Middle", BinaryCompare: "Compare Middle", RepeatSearch: "Repeat Search",
+  Div4Check: "Divisible by 4", CenturyRule: "Century Rule", CompareSwap: "Swap Pairs",
+  PassRepeat: "Repeat Passes", TotalSum: "Total Amount", Percentage: "Percent",
+  TargetCompare: "Above / Below", GradeClassifier: "Grade", CountGrades: "Count Grades",
+  PieChart: "Pie Chart", BarChart: "Bar Chart", LineChart: "Line Chart", IfElse: "If / Else"
+};
+export const getModuleLabel = (type) => LABELS[type] || type;
 export const getModuleDesc = (type) => DESC[type] || "Processes flow data";
 
 // Sidebar module library: the blocks the PYLOOM question set uses, grouped by what they do.
 // [type, icon, description, optional icon class override]
 export const MODULE_LIBRARY = [
-  { title: "Data & I/O", cls: "cat-data", modules: [
-    ["Input", "IN", "Data source input node"], ["Get", "GT", "Read a key from a dictionary"],
-    ["Output", "OUT", "Final result output node"] ] },
-  { title: "Math", cls: "cat-math", modules: [
-    ["Sum", "∑", "Sum list elements"], ["Length", "LN", "Count the items"],
+  { id: "io", title: "Input / Output", cls: "cat-data", modules: [
+    ["Input", "IN", "Start here: type the question data"], ["Output", "OUT", "End here: the final result"],
+    ["Get", "GT", "Read a key from a dictionary"] ] },
+  { id: "math", title: "Math", cls: "cat-math", modules: [
+    ["Sum", "∑", "Add up the list"], ["Length", "LN", "Count the items"],
     ["Add", "+", "Add two values"], ["Subtract", "-", "Subtract two values"],
     ["Multiply", "×", "Multiply values"], ["Divide", "÷", "First input ÷ second input"],
     ["Square", "x²", "Multiply a number by itself"], ["Round", "RD", "Round to decimals"],
     ["Convert", "°", "Fahrenheit → Celsius"] ] },
-  { title: "Logic & text", cls: "cat-logic", modules: [
+  { id: "logic", title: "Compare & Text", cls: "cat-logic", modules: [
     ["Compare", "?", "Returns True / False"], ["Reverse", "RV", "Reverse text", "cat-string"] ] },
-  { title: "Algorithms (DSA)", cls: "cat-algo", modules: [
+  { id: "algo", title: "Search & Sort", cls: "cat-algo", modules: [
     ["Midpoint", "MID", "Middle index of the range"], ["BinaryCompare", "<=>", "Middle vs target"],
     ["RepeatSearch", "↻", "Repeat until found"], ["Div4Check", "÷4", "Divisible by 4?"],
     ["CenturyRule", "100", "÷100 needs ÷400"], ["CompareSwap", "⇄", "One bubble-sort pass"],
     ["PassRepeat", "↻", "Repeat passes until sorted"] ] },
-  { title: "Analysis & charts", cls: "cat-chart", modules: [
+  { id: "chart", title: "Charts & Grades", cls: "cat-chart", modules: [
     ["TotalSum", "Σ", "Total of all categories"], ["Percentage", "%", "Share of the total"],
     ["TargetCompare", "≥T", "Above / Below target"], ["GradeClassifier", "A-F", "Score → grade"],
     ["CountGrades", "#", "Students per grade"], ["PieChart", "◔", "Pie chart render"],
