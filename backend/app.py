@@ -24,6 +24,7 @@ from backend.engine.executor import execute_flow
 from backend.engine.scorer import score_flow, outputs_match, LEVEL_SCORE, TOTAL_SCORE
 from flask import g, has_request_context
 from backend import db as _db
+from backend.leaderboard_export import build_docx, build_pdf
 from backend.db import kv_get as _raw_kv_get, kv_set as _raw_kv_set
 
 # ---------------------------------------------------------------------------
@@ -220,6 +221,8 @@ ADMIN_PASSWORD = os.environ.get("PYLOOM_ADMIN_PASSWORD", "")
 
 LEVEL_TIME_LIMITS = {"easy": 20 * 60, "medium": 15 * 60, "hard": 10 * 60}
 MAIN_TIME_LIMIT = 45 * 60
+# The admin can also run a shorter 30-minute main timer (its own Start / Pause / Resume buttons).
+SHORT_MAIN_TIME_LIMIT = 30 * 60
 # Designed (and tuned: cached reads, staggered polling) for up to 50 participants at once.
 # A solo player or a team counts as one participant.
 MAX_PARTICIPANTS = 50
@@ -240,6 +243,7 @@ DEFAULT_TIMER_STATE = {
     "participant_violation": False,
     "participant_violation_reason": "",
     "main_remaining_seconds": MAIN_TIME_LIMIT,
+    "main_total_seconds": MAIN_TIME_LIMIT,
     "level_run_seconds": 0.0,
     "last_tick": None,
 }
@@ -282,7 +286,7 @@ def _timer_snapshot(timer_state):
         "participant_violation_reason": timer_state["participant_violation_reason"],
         "main_remaining_seconds": round(timer_state["main_remaining_seconds"], 2),
         "level_run_seconds": round(timer_state["level_run_seconds"], 3),
-        "main_total_seconds": MAIN_TIME_LIMIT,
+        "main_total_seconds": timer_state.get("main_total_seconds") or MAIN_TIME_LIMIT,
     }
 
 
@@ -422,8 +426,10 @@ def control_timer():
     payload = request.get_json() or {}
     action = str(payload.get("action", "")).lower()
     timer_name = str(payload.get("timer", "both" if action == "start" else "")).lower()
-    if action not in {"start", "pause", "resume", "restart"}:
-        return jsonify({"success": False, "error": "Action must be start, pause, resume, or restart"}), 400
+    if action not in {"start", "start30", "pause", "resume", "restart"}:
+        return jsonify({"success": False, "error": "Action must be start, start30, pause, resume, or restart"}), 400
+    if action == "start30":
+        timer_name = "main"
     if timer_name not in {"main", "level", "both"} or (timer_name == "both" and action not in {"start", "pause", "resume"}):
         return jsonify({"success": False, "error": "Timer must be main or level (or both for start, pause and resume)"}), 400
 
@@ -436,12 +442,20 @@ def control_timer():
         timer_state["main_paused"] = False
         timer_state["level_paused"] = False
         timer_state["main_remaining_seconds"] = MAIN_TIME_LIMIT
+        timer_state["main_total_seconds"] = MAIN_TIME_LIMIT
         timer_state["level_run_seconds"] = 0.0
         kv_set(LEVEL_ENTRIES_KEY, {})
         log_activity("ADMIN", "timer", "Admin started both timers")
+    elif action == "start30":
+        # A fresh 30-minute main timer; the level timer keeps its own state.
+        timer_state["started"] = True
+        timer_state["main_paused"] = False
+        timer_state["main_remaining_seconds"] = SHORT_MAIN_TIME_LIMIT
+        timer_state["main_total_seconds"] = SHORT_MAIN_TIME_LIMIT
+        log_activity("ADMIN", "timer", "Admin started a 30 min main timer")
     elif action == "restart":
         if timer_name == "main":
-            timer_state["main_remaining_seconds"] = MAIN_TIME_LIMIT
+            timer_state["main_remaining_seconds"] = timer_state.get("main_total_seconds") or MAIN_TIME_LIMIT
             timer_state["main_paused"] = False
         else:
             timer_state["level_paused"] = False
@@ -719,7 +733,7 @@ def _claim_admin(refresh_only=False):
 def protect_admin_routes():
     public_admin_paths = {"/api/admin/login", "/api/admin/session", "/api/admin/logout"}
     if request.path.startswith("/api/admin/") and request.path not in public_admin_paths:
-        if not session.get("admin_authenticated") or not _claim_admin(refresh_only=True):
+        if not session.get("admin_authenticated") or not _claim_admin():
             return jsonify({"success": False, "error": "Admin authentication required"}), 401
 
 MUTABLE_DEFAULTS = {"participants.json": [], "progress.json": {}, "submissions.json": []}
@@ -861,7 +875,7 @@ def admin_login():
 
 @app.route("/api/admin/session", methods=["GET"])
 def admin_session():
-    authenticated = bool(session.get("admin_authenticated")) and _claim_admin(refresh_only=True)
+    authenticated = bool(session.get("admin_authenticated")) and _claim_admin()
     return jsonify({"success": True, "authenticated": authenticated})
 
 
@@ -1557,6 +1571,25 @@ def get_admin_leaderboard():
     progress = load_json("progress.json")
     missions = load_json("missions.json")
     return jsonify({"success": True, "leaderboard": _build_leaderboard(participants, progress, missions)})
+
+
+@app.route("/api/admin/leaderboard/export", methods=["GET"])
+def export_admin_leaderboard():
+    """Download the current leaderboard as ?format=pdf (default) or ?format=docx."""
+    fmt = (request.args.get("format") or "pdf").lower()
+    if fmt not in ("pdf", "docx"):
+        return jsonify({"success": False, "error": "format must be pdf or docx"}), 400
+    board = _build_leaderboard(_admin_participants(), load_json("progress.json"), load_json("missions.json"))
+    if fmt == "pdf":
+        body, mimetype = build_pdf(board), "application/pdf"
+    else:
+        body = build_docx(board)
+        mimetype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    filename = f"pyloom_leaderboard_{time.strftime('%Y%m%d_%H%M')}.{fmt}"
+    return app.response_class(body, mimetype=mimetype, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    })
 
 
 def _online_participants(participants, missions):

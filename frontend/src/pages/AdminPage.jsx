@@ -170,12 +170,18 @@ function Dashboard({ onSignedOut }) {
   useEffect(() => {
     pollLive();
     const poll = setInterval(() => { if (document.visibilityState === "visible") pollLive(); }, LIVE_POLL_INTERVAL_MS);
+    // Up to 3 admins share one live view (backup admins). A dashboard in a background tab keeps
+    // its seat with a light keepalive so it is still signed in when someone switches to it.
+    const keepalive = setInterval(() => {
+      if (document.visibilityState !== "visible") fetch("/api/admin/session").catch(() => {});
+    }, 5000);
     const onVisible = () => { if (document.visibilityState === "visible") pollLive(); };
     document.addEventListener("visibilitychange", onVisible);
     // Smooth countdown between polls.
     const tick = setInterval(() => force((n) => n + 1), 250);
     return () => {
       clearInterval(poll);
+      clearInterval(keepalive);
       clearInterval(tick);
       document.removeEventListener("visibilitychange", onVisible);
     };
@@ -226,7 +232,7 @@ function Dashboard({ onSignedOut }) {
       timerBase.current = { timer: result.timer, at: performance.now() };
       setData((d) => (d ? { ...d, timer: result.timer } : d));
       const label = action === "restart" ? "restarted" : `${action}${action.endsWith("e") ? "d" : "ed"}`;
-      setTimerMsg(action === "start" ? "Both timers started." : `${timer === "main" ? "Main timer" : timer === "level" ? "Level timer" : "Both timers"} ${label}.`);
+      setTimerMsg(action === "start" ? "Both timers started." : action === "start30" ? "30 min main timer started." : `${timer === "main" ? "Main timer" : timer === "level" ? "Level timer" : "Both timers"} ${label}.`);
     } catch (error) {
       setTimerMsg(error.message);
     }
@@ -325,6 +331,7 @@ function Dashboard({ onSignedOut }) {
   const allPaused = Boolean(timer?.main_paused && timer?.level_paused);
   const elapsed = timer && started ? (performance.now() - timerBase.current.at) / 1000 : 0;
   const mainShown = timer ? (timer.main_paused ? timer.main_remaining_seconds : Math.max(0, timer.main_remaining_seconds - elapsed)) : 45 * 60;
+  const mainTotalMin = Math.round((timer?.main_total_seconds || 45 * 60) / 60);
   const levelShown = timer ? (timer.level_paused || !started ? timer.level_run_seconds : timer.level_run_seconds + elapsed) : 0;
   const stateLabel = (paused) => (!started ? "Not started" : paused ? "Paused" : "Running");
   const violation = Boolean(timer?.participant_violation);
@@ -372,14 +379,14 @@ function Dashboard({ onSignedOut }) {
         <div className="admin-timer-heading">
           <div>
             <h3>Timer control</h3>
-            <p>Start and pause both timers here. The main timer (45 min) and the level timer (Easy 20, Medium 15, Hard 10 min) are shared: every participant sees the same time, and logging out or back in never changes it. Use Restart level timer to give everyone a fresh clock for the next level.</p>
+            <p>Start and pause both timers here. The main timer (45 min, or 30 min with the 30 min buttons) and the level timer (Easy 20, Medium 15, Hard 10 min) are shared: every participant sees the same time, and logging out or back in never changes it. Use Restart level timer to give everyone a fresh clock for the next level.</p>
           </div>
           <span id="timer-status" className={`status-badge ${started && !allPaused ? "status-accepted" : "status-rejected"}`}>
             {!started ? "Not started" : allPaused ? "Both paused" : "Running"}
           </span>
         </div>
         <div className="admin-timer-readouts">
-          <div><span>Main timer</span><strong id="admin-main-timer">{formatClock(mainShown)}</strong><small id="admin-main-status">{stateLabel(timer?.main_paused)}</small></div>
+          <div><span>Main timer ({mainTotalMin} min)</span><strong id="admin-main-timer">{formatClock(mainShown)}</strong><small id="admin-main-status">{stateLabel(timer?.main_paused)}</small></div>
           <div><span>Level clock</span><strong id="admin-level-timer">{formatClock(Math.floor(levelShown))}</strong><small id="admin-level-status">{stateLabel(timer?.level_paused)}</small></div>
         </div>
         <div className="admin-timer-actions">
@@ -391,6 +398,11 @@ function Dashboard({ onSignedOut }) {
           <button type="button" className="btn btn-secondary" id="pause-level-timer-btn" disabled={!started || timer.level_paused} onClick={() => controlTimer("level", "pause")}>Pause level timer</button>
           <button type="button" className="btn btn-primary" id="resume-level-timer-btn" disabled={!started || !timer.level_paused} onClick={() => controlTimer("level", "resume")}>Resume level timer</button>
           <button type="button" className="btn btn-secondary" id="restart-level-timer-btn" disabled={!started} onClick={() => controlTimer("level", "restart")}>Restart level timer</button>
+        </div>
+        <div className="admin-timer-actions" id="main-timer-30-actions">
+          <button type="button" className="btn btn-primary" id="start-30-main-timer-btn" onClick={() => controlTimer("main", "start30")}>{mainTotalMin === 30 && started ? "Restart 30 min main timer" : "Start 30 min main timer"}</button>
+          <button type="button" className="btn btn-secondary" id="pause-30-main-timer-btn" disabled={!started || mainTotalMin !== 30 || timer.main_paused} onClick={() => controlTimer("main", "pause")}>Pause 30 min main timer</button>
+          <button type="button" className="btn btn-primary" id="resume-30-main-timer-btn" disabled={!started || mainTotalMin !== 30 || !timer.main_paused} onClick={() => controlTimer("main", "resume")}>Resume 30 min main timer</button>
         </div>
         <div id="timer-control-message" className="admin-login-error" role="status">{timerMsg}</div>
       </div>
@@ -488,8 +500,16 @@ function Dashboard({ onSignedOut }) {
       </div>
 
       <div className="table-card">
-        <h3>Participant leaderboard</h3>
-        <p style={{ color: "var(--text-dim)", marginTop: -4 }}>Admin-only ranking of every participant by total score.</p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <h3>Participant leaderboard</h3>
+            <p style={{ color: "var(--text-dim)", marginTop: -4 }}>Admin-only ranking of every participant by total score.</p>
+          </div>
+          <div className="admin-timer-actions" id="leaderboard-export-actions" style={{ marginTop: 0 }}>
+            <a className="btn btn-primary" id="export-leaderboard-pdf-btn" href="/api/admin/leaderboard/export?format=pdf" download>Export leaderboard (PDF)</a>
+            <a className="btn btn-secondary" id="export-leaderboard-docx-btn" href="/api/admin/leaderboard/export?format=docx" download>Export leaderboard (DOCX)</a>
+          </div>
+        </div>
         <table className="admin-table">
           <thead><tr><th>Rank</th><th>Player ID / Team code</th><th>Player / Team name</th><th>College</th><th>Year of study</th><th>Score</th></tr></thead>
           <tbody id="leaderboard-tbody">

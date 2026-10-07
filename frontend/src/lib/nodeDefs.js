@@ -143,7 +143,7 @@ const DESC = {
 };
 // Simple names shown to players; the engine keeps using the internal type names.
 const LABELS = {
-  Get: "Get Value", SetValue: "Set Value", Compare: "Is True?", Reverse: "Reverse Text", Convert: "°F to °C",
+  Get: "Get Value", SetValue: "Set Value", Compare: "Compare", Reverse: "Reverse Text", Convert: "°F to °C",
   Midpoint: "Middle", BinaryCompare: "Compare Middle", RepeatSearch: "Repeat Search",
   Div4Check: "Divisible by 4", CenturyRule: "Century Rule", CompareSwap: "Swap Pairs",
   PassRepeat: "Repeat Passes", TotalSum: "Total Amount", Percentage: "Percent",

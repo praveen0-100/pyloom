@@ -7,6 +7,8 @@ import { beacon, postJson } from "../lib/api";
 const SESSION_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
 const SESSION_STARTED = Date.now();
 
+export const isEditable = (el) => Boolean(el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)));
+
 /**
  * Strict participant mode. Once the participant has entered full screen, leaving it, switching
  * tab/window, splitting the screen or losing focus locks THEIR session (reported to the admin)
@@ -71,6 +73,12 @@ export function useParticipantLock({ active, getMissionId, exitedRef, onRevoked 
       const key = (e.key || "").toLowerCase();
       // Best-effort: no dev tools / view-source / print / save shortcuts while taking part.
       if (key === "f12" || (e.ctrlKey && e.shiftKey && ["i", "j", "c"].includes(key)) || (e.ctrlKey && ["u", "s", "p"].includes(key))) {
+        e.preventDefault();
+      }
+      // Backspace outside a text field can make the browser navigate back, which drops full
+      // screen. It only edits text in fields (and deletes the hovered block on the canvas).
+      // Alt+Left is the same "go back" shortcut.
+      if ((key === "backspace" && !isEditable(e.target)) || (e.altKey && key === "arrowleft")) {
         e.preventDefault();
       }
     };

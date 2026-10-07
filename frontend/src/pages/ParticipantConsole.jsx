@@ -17,7 +17,7 @@ import {
   loadEventCredits, saveEventCredits, loadGamification, saveGamification, loadTrial, saveTrial
 } from "../lib/storage";
 import { useSharedTimer } from "../hooks/useSharedTimer";
-import { useParticipantLock } from "../hooks/useParticipantLock";
+import { isEditable, useParticipantLock } from "../hooks/useParticipantLock";
 import { useTimeAlerts } from "../hooks/useTimeAlerts";
 import TimeAlertModal from "../components/TimeAlertModal";
 
@@ -231,6 +231,24 @@ export default function ParticipantConsole({ onRevoked }) {
   const onConnect = useCallback((from, to) => setEdges((list) => (list.some((e) => e.from === from && e.to === to) ? list : [...list, { from, to }])), []);
   const onDeleteEdge = useCallback((index) => setEdges((list) => list.filter((_, i) => i !== index)), []);
   const onSelect = useCallback((id) => setSelectedNode(id), []);
+  // Backspace deletes a block only while the mouse pointer is on that block; inside a field it
+  // just edits the text, and anywhere else it does nothing (see useParticipantLock).
+  useEffect(() => {
+    const pointer = { x: -1, y: -1 };
+    const track = (e) => { pointer.x = e.clientX; pointer.y = e.clientY; };
+    const onKey = (e) => {
+      if (e.key !== "Backspace" || isEditable(e.target)) return;
+      e.preventDefault();
+      const nodeEl = document.elementFromPoint(pointer.x, pointer.y)?.closest(".canvas-node");
+      if (nodeEl?.id) onDeleteNode(nodeEl.id);
+    };
+    document.addEventListener("pointermove", track, { passive: true });
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointermove", track);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onDeleteNode]);
   const onDropType = (type, x, y) => createNode(type, x, y);
   // Align the mapping: blocks go in columns by their depth in the flow (inputs first, outputs
   // last), flowing top to bottom, with each column's rows centred under the widest one so the
@@ -502,34 +520,8 @@ export default function ParticipantConsole({ onRevoked }) {
     }
   };
 
-  // After a submission (right or wrong) the participant moves on by themselves: next question of the
-  // level, and after the level's last question the first question of the next level. If that level is
-  // still locked because an earlier question was skipped, they are taken to the first skipped one.
-  const advanceAfterSubmit = () => {
-    const id = missionIdRef.current;
-    const level = currentMissionLevel();
-    const all = live.current.missions;
-    const inLevel = all.filter((m) => levelOf(m) === level);
-    const next = inLevel[inLevel.findIndex((m) => m.id === id) + 1];
-    if (next) { loadMissionData(next.id); return; }
-    const nextLevel = LEVEL_ORDER[LEVEL_ORDER.indexOf(level) + 1];
-    if (nextLevel && levelOpen(nextLevel)) {
-      const first = all.find((m) => levelOf(m) === nextLevel);
-      if (first) {
-        showToast(`${level} level finished! Moving to ${nextLevel}…`, "success");
-        loadMissionData(first.id);
-      }
-      return;
-    }
-    const skipped = inLevel.find((m) => m.id !== id && !(progressRef.current[m.id]?.attempts > 0) && !gamRef.current.completed.includes(m.id));
-    if (skipped) {
-      showToast(`Submit the ${level} questions you skipped to open ${nextLevel || "the next level"}.`, "error");
-      loadMissionData(skipped.id);
-    }
-  };
-  const advanceRef = useRef(advanceAfterSubmit);
-  advanceRef.current = advanceAfterSubmit;
-  // Show the score for a moment (or until OK), then move on.
+  // Show the score for a moment (or until OK). The participant stays on this question and moves
+  // on with the Next question button (or the level tabs) when they are ready.
   const submitResultRef = useRef(null);
   submitResultRef.current = submitResult;
   const closeSubmitResult = useCallback(() => {
@@ -537,7 +529,6 @@ export default function ParticipantConsole({ onRevoked }) {
     if (!current) return; // already closed (timer and button can both fire)
     submitResultRef.current = null;
     setSubmitResult(null);
-    if (!current.failed) advanceRef.current();
   }, []);
   useEffect(() => {
     if (!submitResult || submitResult.failed) return undefined;
