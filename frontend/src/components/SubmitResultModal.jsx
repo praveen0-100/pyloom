@@ -14,12 +14,13 @@ export default function SubmitResultModal({ result, onClose }) {
             <>
               <p>Status: <strong>{String(result.status).toUpperCase()}</strong></p>
               <p>Score earned: <strong>{result.credits} / {result.max}</strong></p>
-              <p style={{ opacity: 0.7 }}>Moving to the next question…</p>
             </>
           ) : null}
-          <div className="hint-modal-actions">
-            <button type="button" className="btn btn-primary" onClick={onClose}>{result && !result.failed ? "Next question" : "OK"}</button>
-          </div>
+          {result?.failed && (
+            <div className="hint-modal-actions">
+              <button type="button" className="btn btn-primary" onClick={onClose}>OK</button>
+            </div>
+          )}
         </div>
       </div>
     </div>
