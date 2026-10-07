@@ -7,6 +7,16 @@ import { beacon, postJson } from "../lib/api";
 const SESSION_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
 const SESSION_STARTED = Date.now();
 
+// Ctrl/Cmd shortcuts still allowed in full screen: text editing only (select all, copy, cut,
+// paste, undo, redo). Everything else (incl. browser AI assistants such as Ask Gemini) is blocked.
+const EDIT_SHORTCUTS = new Set(["a", "c", "v", "x", "z", "y"]);
+
+// Keyboard Lock (Chromium, full screen only) sends browser shortcuts such as Alt+G (Gemini in
+// Chrome), Ctrl+Shift+. (Copilot) and the Windows/Copilot keys to the page, so they can be
+// blocked below. Holding Esc still leaves full screen (which is then reported as a violation).
+const lockKeyboard = () => { try { navigator.keyboard?.lock?.().catch(() => {}); } catch (_) { /* unsupported */ } };
+const unlockKeyboard = () => { try { navigator.keyboard?.unlock?.(); } catch (_) { /* unsupported */ } };
+
 export const isEditable = (el) => Boolean(el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)));
 
 /**
@@ -61,9 +71,10 @@ export function useParticipantLock({ active, getMissionId, exitedRef, onRevoked 
 
   useEffect(() => {
     if (!active) return undefined;
-    if (document.fullscreenElement) r.armed = true;
+    if (document.fullscreenElement) { r.armed = true; lockKeyboard(); }
+    document.body.classList.add("participant-locked");
     const onFullscreen = () => {
-      if (document.fullscreenElement) r.armed = true;
+      if (document.fullscreenElement) { r.armed = true; lockKeyboard(); } else unlockKeyboard();
       monitor();
       rerender();
     };
@@ -81,6 +92,22 @@ export function useParticipantLock({ active, getMissionId, exitedRef, onRevoked 
       if ((key === "backspace" && !isEditable(e.target)) || (e.altKey && key === "arrowleft")) {
         e.preventDefault();
       }
+      // Full screen: no browser AI assistant (Ask Gemini, Copilot) or other browser shortcuts.
+      // AltGr (Ctrl+Alt) types characters such as @ on some keyboards: allowed inside fields.
+      const altGr = e.getModifierState?.("AltGraph") && isEditable(e.target);
+      if (document.fullscreenElement && !altGr) {
+        const ctrlCombo = (e.ctrlKey || e.metaKey) && key.length === 1 && !(EDIT_SHORTCUTS.has(key) && !e.altKey);
+        const editingKey = ["backspace", "delete", "arrowleft", "arrowright", "arrowup", "arrowdown", "home", "end"].includes(key);
+        if (e.altKey || key === "meta" || key === "os" || key === "contextmenu" || /^f\d+$/.test(key)
+            || (e.metaKey && !editingKey) || ctrlCombo || (e.ctrlKey && e.shiftKey && !editingKey && !EDIT_SHORTCUTS.has(key))) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+    // No text selection outside fields, so the "Ask Gemini" selection popup never appears.
+    const noSelect = (e) => {
+      if (!exitedRef.current && !isEditable(e.target) && !isEditable(e.target?.parentElement)) e.preventDefault();
     };
     const noMenu = (e) => { if (!exitedRef.current) e.preventDefault(); };
     document.addEventListener("fullscreenchange", onFullscreen);
@@ -90,7 +117,11 @@ export function useParticipantLock({ active, getMissionId, exitedRef, onRevoked 
     window.addEventListener("focus", rerender);
     document.addEventListener("keydown", block, true);
     document.addEventListener("contextmenu", noMenu);
+    document.addEventListener("selectstart", noSelect);
     return () => {
+      unlockKeyboard();
+      document.body.classList.remove("participant-locked");
+      document.removeEventListener("selectstart", noSelect);
       document.removeEventListener("fullscreenchange", onFullscreen);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("blur", monitor);

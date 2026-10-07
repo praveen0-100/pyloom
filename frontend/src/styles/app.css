@@ -135,3 +135,10 @@ img, svg, video { max-width: 100%; }
 
 .mission-operation-code { margin: 4px 0 0; padding: 8px 10px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-sm, 6px); font-family: ui-monospace, Consolas, monospace; font-size: 0.75rem; line-height: 1.45; white-space: pre; overflow-x: auto; color: var(--text-main); }
 .mission-operation-code.is-structured { font-family: inherit; font-size: 0.78rem; white-space: pre-wrap; }
+
+/* Participant console: no page-text selection (and so no "Ask Gemini" selection popup); fields still edit normally. */
+body.participant-locked { -webkit-user-select: none; user-select: none; }
+body.participant-locked input,
+body.participant-locked textarea,
+body.participant-locked select,
+body.participant-locked [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
