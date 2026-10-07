@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#7700ff">
   <title>PYLOOM — Drag, Connect and Execute</title>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <script>
+    // A page cached from before a redeploy can point at script/style files that no longer exist
+    // (blank screen). Reload once to fetch the current version instead of needing a hard refresh.
+    window.addEventListener("error", function (e) {
+      var t = e.target;
+      if (!t || (t.tagName !== "SCRIPT" && t.tagName !== "LINK")) return;
+      try {
+        if (sessionStorage.getItem("pyloom-asset-reload")) return;
+        sessionStorage.setItem("pyloom-asset-reload", "1");
+      } catch (_) { return; }
+      location.reload();
+    }, true);
+  </script>
 </head>
 <body>
   <div id="root"></div>

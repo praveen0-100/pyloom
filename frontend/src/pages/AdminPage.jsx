@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ThemeToggle from "../components/ThemeToggle";
 import Avatar from "../components/Avatar";
 import { postJson } from "../lib/api";
@@ -8,19 +8,51 @@ const formatClock = (seconds) => {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 };
 const LIVE_POLL_INTERVAL_MS = 3000;
+// Every admin request gives up after this long, so one slow or stuck request (serverless cold
+// start, flaky network) never freezes the dashboard.
+const REQUEST_TIMEOUT_MS = 10000;
+const fetchWithTimeout = (url, options = {}) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  return fetch(url, { cache: "no-store", credentials: "same-origin", ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+};
+// Is this browser still signed in as admin? null = could not tell (network/server hiccup).
+const checkAdminSession = async () => {
+  try {
+    const res = await fetchWithTimeout("/api/admin/session");
+    const result = await res.json();
+    return Boolean(result.authenticated);
+  } catch (_) {
+    return null;
+  }
+};
+// Keeps the previous object when a polled slice has not changed, so memoized sections skip re-rendering.
+const keepIfSame = (prev, next) => (prev !== undefined && JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
 const EMPTY_SUMMARY = { participants: { canvas: 0, active: 0, pending: 0 }, levels: {}, questions: {}, participant_records: [] };
 
 function AdminLogin({ onSignedIn }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const submit = async (event) => {
     event.preventDefault();
+    if (busy) return;
     setError("");
-    const result = await (await postJson("/api/admin/login", { username, password })).json();
-    if (!result.success) {
-      setError(result.error || "Unable to sign in.");
+    setBusy(true);
+    try {
+      const res = await postJson("/api/admin/login", { username, password });
+      const result = await res.json().catch(() => ({ success: false, error: `Server error (${res.status}). Please try again.` }));
+      if (!result.success) {
+        setError(result.error || "Unable to sign in.");
+        setBusy(false);
+        return;
+      }
+    } catch (err) {
+      setError("Could not reach the server. Check the connection and try again.");
+      setBusy(false);
       return;
     }
     onSignedIn();
@@ -37,7 +69,7 @@ function AdminLogin({ onSignedIn }) {
           <input id="admin-username" type="text" autoComplete="username" required value={username} onChange={(e) => setUsername(e.target.value)} />
           <label htmlFor="admin-password">Password</label>
           <input id="admin-password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-          <button type="submit" className="btn btn-primary">Open admin panel</button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? "Signing in…" : "Open admin panel"}</button>
           <div id="admin-login-error" className="admin-login-error" role="alert">{error}</div>
         </form>
       </div>
@@ -46,7 +78,7 @@ function AdminLogin({ onSignedIn }) {
 }
 
 // A participant row in "Participant access": Activate / Deactivate / Delete with in-flight state.
-function ParticipantRow({ record, onChanged, onRemoved }) {
+const ParticipantRow = memo(function ParticipantRow({ record, onChanged, onRemoved }) {
   const [busy, setBusy] = useState("");
   const teamId = record.team_id;
   const act = async (action) => {
@@ -129,15 +161,103 @@ function ParticipantRow({ record, onChanged, onRemoved }) {
       </button>
     </div>
   );
+});
+
+// The two countdowns tick on their own (4x a second) so the rest of the dashboard only
+// re-renders when polled data actually changes.
+function TimerReadouts({ timer, baseRef }) {
+  const [, force] = useState(0);
+  const running = Boolean(timer?.started && !(timer.main_paused && timer.level_paused));
+  useEffect(() => {
+    if (!running) return undefined;
+    const tick = setInterval(() => force((n) => n + 1), 250);
+    return () => clearInterval(tick);
+  }, [running]);
+  const started = Boolean(timer?.started);
+  const elapsed = timer && started ? (performance.now() - baseRef.current.at) / 1000 : 0;
+  const mainShown = timer ? (timer.main_paused ? timer.main_remaining_seconds : Math.max(0, timer.main_remaining_seconds - elapsed)) : 45 * 60;
+  const levelShown = timer ? (timer.level_paused || !started ? timer.level_run_seconds : timer.level_run_seconds + elapsed) : 0;
+  const stateLabel = (paused) => (!started ? "Not started" : paused ? "Paused" : "Running");
+  const mainTotalMin = Math.round((timer?.main_total_seconds || 45 * 60) / 60);
+  return (
+    <div className="admin-timer-readouts">
+      <div><span>Main timer ({mainTotalMin} min)</span><strong id="admin-main-timer">{formatClock(mainShown)}</strong><small id="admin-main-status">{stateLabel(timer?.main_paused)}</small></div>
+      <div><span>Level clock</span><strong id="admin-level-timer">{formatClock(Math.floor(levelShown))}</strong><small id="admin-level-status">{stateLabel(timer?.level_paused)}</small></div>
+    </div>
+  );
 }
+
+const LeaderboardCard = memo(function LeaderboardCard({ leaderboard }) {
+  return (
+    <div className="table-card">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h3>Participant leaderboard</h3>
+          <p style={{ color: "var(--text-dim)", marginTop: -4 }}>Admin-only ranking of every participant by total score.</p>
+        </div>
+        <div className="admin-timer-actions" id="leaderboard-export-actions" style={{ marginTop: 0 }}>
+          <a className="btn btn-primary" id="export-leaderboard-pdf-btn" href="/api/admin/leaderboard/export?format=pdf" download>Export leaderboard (PDF)</a>
+          <a className="btn btn-secondary" id="export-leaderboard-docx-btn" href="/api/admin/leaderboard/export?format=docx" download>Export leaderboard (DOCX)</a>
+        </div>
+      </div>
+      <table className="admin-table">
+        <thead><tr><th>Rank</th><th>Player ID / Team code</th><th>Player / Team name</th><th>College</th><th>Year of study</th><th>Score</th></tr></thead>
+        <tbody id="leaderboard-tbody">
+          {!leaderboard ? (
+            <tr><td colSpan="7" style={{ color: "var(--text-dim)", textAlign: "center" }}>Loading leaderboard…</td></tr>
+          ) : !leaderboard.length ? (
+            <tr><td colSpan="7" style={{ color: "var(--text-dim)", textAlign: "center" }}>No participants yet.</td></tr>
+          ) : leaderboard.map((row) => (
+            <tr key={row.player_id} className={row.rank <= 3 ? `leaderboard-row-rank-${row.rank}` : ""}>
+              <td><span className={`rank-badge${row.rank <= 3 ? ` rank-badge-${row.rank}` : ""}`}>{row.rank}</span></td>
+              <td className="cell-team"><Avatar file={row.avatar} name={row.player_name} size={24} /> {row.player_id}</td>
+              <td>{row.player_name}{row.mode === "team" && row.members?.length ? <small style={{ display: "block", color: "var(--text-dim)" }}>{row.members.join(", ")}</small> : null}</td>
+              <td>{row.college}</td>
+              <td>{row.year_of_study}</td>
+              <td className="cell-credits">{row.score} / {row.max_score ?? 100}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+});
+
+const SubmissionsCard = memo(function SubmissionsCard({ loaded, submissions }) {
+  return (
+    <div className="table-card">
+      <h3>Live submissions log</h3>
+      <table className="admin-table">
+        <thead><tr><th>Team ID</th><th>Mission</th><th>Round</th><th>Credits</th><th>Status</th></tr></thead>
+        <tbody id="submissions-tbody">
+          {!loaded ? (
+            <tr><td colSpan="5" style={{ color: "var(--text-dim)", textAlign: "center" }}>Loading submissions…</td></tr>
+          ) : !submissions.length ? (
+            <tr><td colSpan="5" style={{ color: "var(--text-dim)", textAlign: "center" }}>No submissions recorded yet.</td></tr>
+          ) : submissions.map((s, i) => (
+            <tr key={i}>
+              <td className="cell-team">{s.team_id}</td>
+              <td>{s.mission_title}</td>
+              <td>Round {s.round}</td>
+              <td className="cell-credits">{s.credits} / {s.mission_credits ?? 4}</td>
+              <td><span className={`status-badge status-${s.status}`}>{s.status.toUpperCase()}</span></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+});
 
 function Dashboard({ onSignedOut }) {
   const [data, setData] = useState(null);
   const [timerMsg, setTimerMsg] = useState("");
   const [lockMsg, setLockMsg] = useState("");
   const [resetMsg, setResetMsg] = useState("");
-  const [, force] = useState(0);
   const [alerts, setAlerts] = useState([]);
+  // Shown instead of a frozen/blank panel while the server cannot be reached.
+  const [connection, setConnection] = useState("ok");
+  const failures = useRef(0);
   // Deleted participants disappear from the lists immediately (no waiting for the next poll).
   const [removedIds, setRemovedIds] = useState([]);
   const onRemoved = useCallback((teamId) => setRemovedIds((ids) => [...ids, teamId]), []);
@@ -149,18 +269,30 @@ function Dashboard({ onSignedOut }) {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const res = await fetch("/api/admin/live");
+      const res = await fetchWithTimeout("/api/admin/live");
       if (res.status === 401) {
-        // Session ended (signed out or another admin took over): back to sign-in.
-        onSignedOut();
-        return;
+        // Only leave the panel when the server confirms the session really ended (signed out
+        // elsewhere, or 3 other admins hold every seat) - never on a one-off hiccup.
+        if ((await checkAdminSession()) === false) { onSignedOut(); return; }
+        throw new Error("Session check failed");
       }
       const next = await res.json();
-      if (!next.success) return;
+      if (!next.success) throw new Error(next.error || "Live data unavailable");
       timerBase.current = { timer: next.timer, at: performance.now() };
-      setData(next);
+      // Unchanged sections keep their old object so they skip re-rendering.
+      setData((prev) => ({
+        ...next,
+        violations: keepIfSame(prev?.violations, next.violations),
+        summary: keepIfSame(prev?.summary, next.summary),
+        leaderboard: keepIfSame(prev?.leaderboard, next.leaderboard),
+        submissions: keepIfSame(prev?.submissions, next.submissions),
+        online_participants: keepIfSame(prev?.online_participants, next.online_participants)
+      }));
+      failures.current = 0;
+      setConnection("ok");
     } catch (err) {
-      console.error("Live poll error:", err);
+      failures.current += 1;
+      if (failures.current >= 2) setConnection("reconnecting");
     } finally {
       inFlight.current = false;
     }
@@ -173,16 +305,13 @@ function Dashboard({ onSignedOut }) {
     // Up to 3 admins share one live view (backup admins). A dashboard in a background tab keeps
     // its seat with a light keepalive so it is still signed in when someone switches to it.
     const keepalive = setInterval(() => {
-      if (document.visibilityState !== "visible") fetch("/api/admin/session").catch(() => {});
+      if (document.visibilityState !== "visible") fetchWithTimeout("/api/admin/session").catch(() => {});
     }, 5000);
     const onVisible = () => { if (document.visibilityState === "visible") pollLive(); };
     document.addEventListener("visibilitychange", onVisible);
-    // Smooth countdown between polls.
-    const tick = setInterval(() => force((n) => n + 1), 250);
     return () => {
       clearInterval(poll);
       clearInterval(keepalive);
-      clearInterval(tick);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [pollLive]);
@@ -212,6 +341,7 @@ function Dashboard({ onSignedOut }) {
         osc.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + 0.25);
+        osc.onended = () => ctx.close().catch(() => {});
       } catch (_) { /* sound is optional */ }
     }
   }, [data]);
@@ -288,7 +418,7 @@ function Dashboard({ onSignedOut }) {
   };
 
   const logout = async () => {
-    await fetch("/api/admin/logout", { method: "POST" });
+    try { await fetchWithTimeout("/api/admin/logout", { method: "POST" }); } catch (_) { /* signed out locally anyway */ }
     onSignedOut(true);
   };
 
@@ -323,17 +453,14 @@ function Dashboard({ onSignedOut }) {
   const gone = (id) => removedIds.includes(id);
   const timer = data?.timer;
   const online = (data?.online_participants || []).filter((p) => !gone(p.team_id));
-  const leaderboard = data?.leaderboard?.filter((row) => !gone(row.player_id));
+  const leaderboardAll = data?.leaderboard;
+  const leaderboard = useMemo(() => leaderboardAll?.filter((row) => !removedIds.includes(row.player_id)), [leaderboardAll, removedIds]);
   const submissions = data?.submissions || [];
 
   // Timer readouts
   const started = Boolean(timer?.started);
   const allPaused = Boolean(timer?.main_paused && timer?.level_paused);
-  const elapsed = timer && started ? (performance.now() - timerBase.current.at) / 1000 : 0;
-  const mainShown = timer ? (timer.main_paused ? timer.main_remaining_seconds : Math.max(0, timer.main_remaining_seconds - elapsed)) : 45 * 60;
   const mainTotalMin = Math.round((timer?.main_total_seconds || 45 * 60) / 60);
-  const levelShown = timer ? (timer.level_paused || !started ? timer.level_run_seconds : timer.level_run_seconds + elapsed) : 0;
-  const stateLabel = (paused) => (!started ? "Not started" : paused ? "Paused" : "Running");
   const violation = Boolean(timer?.participant_violation);
   const lockOn = Boolean(timer?.participant_lock_enabled);
 
@@ -355,6 +482,12 @@ function Dashboard({ onSignedOut }) {
           <a href="/" className="btn btn-secondary">← Back to editor</a>
         </div>
       </div>
+
+      {connection !== "ok" && (
+        <div className="table-card" role="status" style={{ borderColor: "#f59e0b", padding: "10px 16px", marginBottom: 16 }}>
+          Reconnecting to the server… the panel keeps the last data and updates as soon as the connection is back.
+        </div>
+      )}
 
       {alerts.length > 0 && (
         <div className="admin-alerts" role="alert" style={{ display: "grid", gap: 8, marginBottom: 16 }}>
@@ -385,10 +518,7 @@ function Dashboard({ onSignedOut }) {
             {!started ? "Not started" : allPaused ? "Both paused" : "Running"}
           </span>
         </div>
-        <div className="admin-timer-readouts">
-          <div><span>Main timer ({mainTotalMin} min)</span><strong id="admin-main-timer">{formatClock(mainShown)}</strong><small id="admin-main-status">{stateLabel(timer?.main_paused)}</small></div>
-          <div><span>Level clock</span><strong id="admin-level-timer">{formatClock(Math.floor(levelShown))}</strong><small id="admin-level-status">{stateLabel(timer?.level_paused)}</small></div>
-        </div>
+        <TimerReadouts timer={timer} baseRef={timerBase} />
         <div className="admin-timer-actions">
           <button type="button" className="btn btn-primary" id="start-timers-btn" onClick={() => controlTimer("both", "start")}>{started ? "Restart both timers" : "Start both timers"}</button>
           <button type="button" className="btn btn-secondary" id="pause-both-timers-btn" disabled={!started || (timer.main_paused && timer.level_paused)} onClick={() => controlTimer("both", "pause")}>Pause both timers</button>
@@ -499,73 +629,40 @@ function Dashboard({ onSignedOut }) {
         </table>
       </div>
 
-      <div className="table-card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-          <div>
-            <h3>Participant leaderboard</h3>
-            <p style={{ color: "var(--text-dim)", marginTop: -4 }}>Admin-only ranking of every participant by total score.</p>
-          </div>
-          <div className="admin-timer-actions" id="leaderboard-export-actions" style={{ marginTop: 0 }}>
-            <a className="btn btn-primary" id="export-leaderboard-pdf-btn" href="/api/admin/leaderboard/export?format=pdf" download>Export leaderboard (PDF)</a>
-            <a className="btn btn-secondary" id="export-leaderboard-docx-btn" href="/api/admin/leaderboard/export?format=docx" download>Export leaderboard (DOCX)</a>
-          </div>
-        </div>
-        <table className="admin-table">
-          <thead><tr><th>Rank</th><th>Player ID / Team code</th><th>Player / Team name</th><th>College</th><th>Year of study</th><th>Score</th></tr></thead>
-          <tbody id="leaderboard-tbody">
-            {!leaderboard ? (
-              <tr><td colSpan="7" style={{ color: "var(--text-dim)", textAlign: "center" }}>Loading leaderboard…</td></tr>
-            ) : !leaderboard.length ? (
-              <tr><td colSpan="7" style={{ color: "var(--text-dim)", textAlign: "center" }}>No participants yet.</td></tr>
-            ) : leaderboard.map((row) => (
-              <tr key={row.player_id} className={row.rank <= 3 ? `leaderboard-row-rank-${row.rank}` : ""}>
-                <td><span className={`rank-badge${row.rank <= 3 ? ` rank-badge-${row.rank}` : ""}`}>{row.rank}</span></td>
-                <td className="cell-team"><Avatar file={row.avatar} name={row.player_name} size={24} /> {row.player_id}</td>
-                <td>{row.player_name}{row.mode === "team" && row.members?.length ? <small style={{ display: "block", color: "var(--text-dim)" }}>{row.members.join(", ")}</small> : null}</td>
-                <td>{row.college}</td>
-                <td>{row.year_of_study}</td>
-                <td className="cell-credits">{row.score} / {row.max_score ?? 100}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="table-card">
-        <h3>Live submissions log</h3>
-        <table className="admin-table">
-          <thead><tr><th>Team ID</th><th>Mission</th><th>Round</th><th>Credits</th><th>Status</th></tr></thead>
-          <tbody id="submissions-tbody">
-            {!data ? (
-              <tr><td colSpan="5" style={{ color: "var(--text-dim)", textAlign: "center" }}>Loading submissions…</td></tr>
-            ) : !submissions.length ? (
-              <tr><td colSpan="5" style={{ color: "var(--text-dim)", textAlign: "center" }}>No submissions recorded yet.</td></tr>
-            ) : submissions.map((s, i) => (
-              <tr key={i}>
-                <td className="cell-team">{s.team_id}</td>
-                <td>{s.mission_title}</td>
-                <td>Round {s.round}</td>
-                <td className="cell-credits">{s.credits} / {s.mission_credits ?? 4}</td>
-                <td><span className={`status-badge status-${s.status}`}>{s.status.toUpperCase()}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <LeaderboardCard leaderboard={leaderboard} />
+      <SubmissionsCard loaded={Boolean(data)} submissions={submissions} />
     </div>
   );
 }
 
 export default function AdminPage() {
-  const [signedIn, setSignedIn] = useState(false);
+  // "checking" until the server answers, so the sign-in form never flashes for a signed-in admin.
+  const [state, setState] = useState("checking");
 
   useEffect(() => {
     document.body.classList.add("admin-page");
     document.title = "PYLOOM Admin";
-    fetch("/api/admin/session").then((r) => r.json()).then((result) => { if (result.authenticated) setSignedIn(true); });
-    return () => document.body.classList.remove("admin-page");
+    let cancelled = false;
+    (async () => {
+      // A cold server can fail the first request: retry a few times before showing sign-in.
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt += 1) {
+        const authenticated = await checkAdminSession();
+        if (authenticated !== null) { if (!cancelled) setState(authenticated ? "in" : "out"); return; }
+        await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+      }
+      if (!cancelled) setState("out");
+    })();
+    return () => { cancelled = true; document.body.classList.remove("admin-page"); };
   }, []);
 
-  const onSignedOut = useCallback(() => setSignedIn(false), []);
-  return signedIn ? <Dashboard onSignedOut={onSignedOut} /> : <AdminLogin onSignedIn={() => setSignedIn(true)} />;
+  const onSignedOut = useCallback(() => setState("out"), []);
+  const onSignedIn = useCallback(() => setState("in"), []);
+  if (state === "checking") {
+    return (
+      <section className="admin-login" aria-busy="true">
+        <div className="admin-login-card"><div className="brand-name">PYLOOM</div><p>Loading admin panel…</p></div>
+      </section>
+    );
+  }
+  return state === "in" ? <Dashboard onSignedOut={onSignedOut} /> : <AdminLogin onSignedIn={onSignedIn} />;
 }

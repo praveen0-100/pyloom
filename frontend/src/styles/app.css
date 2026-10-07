@@ -105,8 +105,12 @@ img, svg, video { max-width: 100%; }
   .app-footer { position: sticky; bottom: 0; }
 }
 
-/* Admin panel: wide tables scroll inside their card instead of stretching the page */
-.table-card { overflow-x: auto; }
+/* Admin panel: wide tables scroll inside their card instead of stretching the page.
+   body is a flex container for the participant console; as a flex item the admin panel would
+   grow to its widest table (sideways page scroll on phones), so the admin page uses block layout. */
+body.admin-page { display: block; }
+.admin-container { min-width: 0; width: 100%; }
+.table-card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .admin-table { min-width: 560px; }
 .admin-header { flex-wrap: wrap; gap: 12px; }
 .participant-row { flex-wrap: wrap; }

@@ -1623,6 +1623,20 @@ LIVE_CACHE_SECONDS = 1.5
 
 
 @app.after_request
+def _cache_headers(response):
+    """The page shell must never be cached: after a redeploy a stale index.html points at
+    asset files that no longer exist, which shows a blank screen until a hard refresh.
+    Hashed build assets never change, so they can be cached for good. API data is live."""
+    path = request.path
+    if path.startswith("/assets/") and response.status_code == 200:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith("/api/") or (response.mimetype == "text/html"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
+@app.after_request
 def _invalidate_live_cache(response):
     # Any admin action (activate, delete, unlock, reset ...) must show up on the next poll.
     if request.path.startswith("/api/admin/") and request.method != "GET":
